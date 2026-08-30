@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
 import type {
   AbletonSetInfo,
   AppState,
@@ -10,6 +9,7 @@ import type {
   DeleteFromLibraryReport,
   HarvestCandidate,
   HarvestReport,
+  IgnoredConsolidateInput,
   Project,
   ProjectLibraryStatus,
   Session,
@@ -84,6 +84,13 @@ export async function deleteStorageLocation(id: string): Promise<AppState> {
   return invoke("delete_storage_location", { id });
 }
 
+export async function ignoreConsolidates(
+  projectId: string,
+  items: IgnoredConsolidateInput[],
+): Promise<number> {
+  return invoke("ignore_consolidates", { projectId, items });
+}
+
 export async function deleteFromLibrary(assetId: string): Promise<DeleteFromLibraryReport> {
   return invoke("delete_from_library", { assetId });
 }
@@ -117,7 +124,7 @@ export async function pickFolder(): Promise<string | null> {
 }
 
 export async function revealPath(path: string): Promise<void> {
-  await openPath(path);
+  await invoke("reveal_path", { path });
 }
 
 export function formatDuration(seconds: number | null): string {

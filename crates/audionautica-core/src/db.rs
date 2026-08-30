@@ -108,6 +108,18 @@ const MIGRATIONS: &[&str] = &[r#"
     ALTER TABLE audio_assets ADD COLUMN ingest_type TEXT NOT NULL DEFAULT 'SESSION_HARVEST';
     CREATE INDEX IF NOT EXISTS idx_assets_ingest_type ON audio_assets(ingest_type);
     "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS ignored_consolidates (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        content_hash TEXT NOT NULL,
+        original_path TEXT NOT NULL,
+        original_filename TEXT NOT NULL,
+        ignored_at TEXT NOT NULL,
+        UNIQUE(project_id, content_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ignored_project ON ignored_consolidates(project_id);
+    "#,
 ];
 
 pub fn open(path: &Path) -> AppResult<Connection> {
@@ -478,6 +490,70 @@ pub fn next_sequence(
     Ok((count as u32) + 1)
 }
 
+pub fn list_library_filenames_in_category(
+    conn: &Connection,
+    year: i32,
+    category: Category,
+) -> AppResult<std::collections::HashSet<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT canonical_filename FROM audio_assets WHERE year = ?1 AND category = ?2",
+    )?;
+    let rows = stmt.query_map(params![year, category.as_str()], |r| r.get(0))?;
+    let mut out = std::collections::HashSet::new();
+    for row in rows {
+        out.insert(row?);
+    }
+    Ok(out)
+}
+
+pub fn ignored_hashes_for_project(
+    conn: &Connection,
+    project_id: &str,
+) -> AppResult<std::collections::HashSet<String>> {
+    let mut stmt =
+        conn.prepare("SELECT content_hash FROM ignored_consolidates WHERE project_id = ?1")?;
+    let rows = stmt.query_map(params![project_id], |r| r.get(0))?;
+    let mut out = std::collections::HashSet::new();
+    for row in rows {
+        out.insert(row?);
+    }
+    Ok(out)
+}
+
+pub fn insert_ignored_consolidate(
+    conn: &Connection,
+    project_id: &str,
+    content_hash: &str,
+    original_path: &str,
+    original_filename: &str,
+) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO ignored_consolidates (id, project_id, content_hash, original_path, original_filename, ignored_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(project_id, content_hash) DO UPDATE SET
+            original_path = excluded.original_path,
+            original_filename = excluded.original_filename,
+            ignored_at = excluded.ignored_at",
+        params![
+            crate::domain::new_id(),
+            project_id,
+            content_hash,
+            original_path,
+            original_filename,
+            Utc::now().to_rfc3339()
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn remove_ignored_for_hash(conn: &Connection, project_id: &str, content_hash: &str) -> AppResult<()> {
+    conn.execute(
+        "DELETE FROM ignored_consolidates WHERE project_id = ?1 AND content_hash = ?2",
+        params![project_id, content_hash],
+    )?;
+    Ok(())
+}
+
 pub fn list_assets(
     conn: &Connection,
     year: Option<i32>,
@@ -601,6 +677,54 @@ pub fn insert_asset_storage(conn: &Connection, rec: &AssetStorageLocation) -> Ap
         ],
     )?;
     Ok(())
+}
+
+pub fn find_asset_storage(
+    conn: &Connection,
+    asset_id: &str,
+    storage_location_id: &str,
+) -> AppResult<Option<AssetStorageLocation>> {
+    conn.query_row(
+        "SELECT id, asset_id, storage_location_id, relative_path, copy_status, error_message, copied_at
+         FROM asset_storage_locations
+         WHERE asset_id = ?1 AND storage_location_id = ?2
+         LIMIT 1",
+        params![asset_id, storage_location_id],
+        |r| {
+            let copied_at: Option<String> = r.get(6)?;
+            Ok(AssetStorageLocation {
+                id: r.get(0)?,
+                asset_id: r.get(1)?,
+                storage_location_id: r.get(2)?,
+                relative_path: r.get(3)?,
+                copy_status: CopyStatus::parse(&r.get::<_, String>(4)?),
+                error_message: r.get(5)?,
+                copied_at: copied_at.as_deref().map(parse_dt),
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn upsert_asset_storage(conn: &Connection, rec: &AssetStorageLocation) -> AppResult<()> {
+    if find_asset_storage(conn, &rec.asset_id, &rec.storage_location_id)?.is_some() {
+        conn.execute(
+            "UPDATE asset_storage_locations
+             SET relative_path = ?1, copy_status = ?2, error_message = ?3, copied_at = ?4
+             WHERE asset_id = ?5 AND storage_location_id = ?6",
+            params![
+                rec.relative_path,
+                rec.copy_status.as_str(),
+                rec.error_message,
+                rec.copied_at.map(|t| t.to_rfc3339()),
+                rec.asset_id,
+                rec.storage_location_id
+            ],
+        )?;
+        return Ok(());
+    }
+    insert_asset_storage(conn, rec)
 }
 
 pub fn insert_event(conn: &Connection, event: &HarvestEvent) -> AppResult<()> {

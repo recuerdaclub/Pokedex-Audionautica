@@ -241,9 +241,12 @@ fn operator_harvest_real_ableton_wavs_differential_categories_storage() {
         fs::remove_file(p).unwrap();
     }
     let local = upsert_loc(&conn, StorageKind::Local, "Local", &unicode_lib);
+    let drive_tmp = sandbox.join("drive-mirror");
+    fs::create_dir_all(&drive_tmp).unwrap();
+    upsert_loc(&conn, StorageKind::GoogleDriveFolder, "Drive", &drive_tmp);
     if drive_available {
         let _ = fs::create_dir_all(&drive_root);
-        upsert_loc(&conn, StorageKind::GoogleDriveFolder, "Drive", &drive_root);
+        upsert_loc(&conn, StorageKind::GoogleDriveFolder, "DriveG", &drive_root);
     }
     upsert_loc(&conn, StorageKind::DropboxFolder, "Dropbox", &bad);
 

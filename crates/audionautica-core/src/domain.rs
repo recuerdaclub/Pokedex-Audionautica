@@ -384,10 +384,19 @@ pub enum ChangeKind {
 pub struct HistoricalConsolidate {
     pub original_path: String,
     pub original_filename: String,
+    /// Musical library name with Ableton timestamp stripped only.
+    pub library_filename: String,
     pub relative_path: String,
     pub size_bytes: u64,
     pub modified_at: DateTime<Utc>,
     pub content_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IgnoredConsolidateInput {
+    pub original_path: String,
+    pub content_hash: String,
+    pub original_filename: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -404,10 +413,13 @@ pub struct ProjectLibraryStatus {
 pub struct HarvestCandidate {
     pub original_path: String,
     pub original_filename: String,
+    /// Musical library name with Ableton timestamp stripped only.
+    pub library_filename: String,
     pub relative_path: String,
     pub size_bytes: u64,
     pub modified_at: DateTime<Utc>,
     pub change_kind: ChangeKind,
+    pub content_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

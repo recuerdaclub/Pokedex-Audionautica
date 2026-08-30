@@ -231,6 +231,7 @@ version = "1.0.1"
 dependencies = [
  "audionautica-core",
  "chrono",
+ "open",
  "rusqlite",
  "serde",
  "serde_json",

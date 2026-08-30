@@ -8,7 +8,7 @@ use audionautica_core::fsutil::stability::StabilityConfig;
 use audionautica_core::fsutil::wav::write_pcm_wav;
 use audionautica_core::harvest::{
     abandon_active_session, archive_session, end_session, import_historical, scan_historical_consolidates,
-    start_session, CandidateSelection, LibraryFilter,
+    start_session, sync_mirror_from_local, CandidateSelection, LibraryFilter,
 };
 use audionautica_core::hash::hash_file;
 use audionautica_core::harvest::list_library;
@@ -50,6 +50,18 @@ impl Harness {
         let lib = self.root.join("Audionautica");
         fs::create_dir_all(&lib).unwrap();
         self.add_location(StorageKind::Local, "Local Library", &lib)
+    }
+
+    fn add_drive(&mut self) -> StorageLocation {
+        let lib = self.root.join("Drive");
+        fs::create_dir_all(&lib).unwrap();
+        self.add_location(StorageKind::GoogleDriveFolder, "Drive", &lib)
+    }
+
+    fn add_farm_storage(&mut self) -> StorageLocation {
+        let local = self.add_local();
+        self.add_drive();
+        local
     }
 
     fn add_location(&mut self, kind: StorageKind, label: &str, path: &Path) -> StorageLocation {
@@ -122,7 +134,7 @@ fn b_import_creates_three_assets() {
     let a = h.wav(&cons, "A.wav", 1);
     let b = h.wav(&cons, "B.wav", 2);
     let c = h.wav(&cons, "C.wav", 3);
-    h.add_local();
+    h.add_farm_storage();
     let report = import_historical(
         &mut h.conn,
         &als,
@@ -145,7 +157,7 @@ fn c_rescan_zero_pending_after_import() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "88");
     let a = h.wav(&cons, "A.wav", 1);
-    h.add_local();
+    h.add_farm_storage();
     import_historical(&mut h.conn, &als, None, &[sel(&a, Category::Other)], &fast()).unwrap();
     let status = scan_historical_consolidates(&h.conn, &als).unwrap();
     assert!(status.pending.is_empty());
@@ -162,7 +174,7 @@ fn d_partial_import_two_pending() {
     h.wav(&cons, "C.wav", 3);
     h.wav(&cons, "D.wav", 4);
     h.wav(&cons, "E.wav", 5);
-    h.add_local();
+    h.add_farm_storage();
     let paths: Vec<_> = ["A.wav", "B.wav", "C.wav"]
         .iter()
         .map(|n| cons.join(n))
@@ -192,7 +204,7 @@ fn e_historical_then_session_delta_four_new() {
     h.wav(&cons, "A.wav", 1);
     h.wav(&cons, "B.wav", 2);
     h.wav(&cons, "C.wav", 3);
-    h.add_local();
+    h.add_farm_storage();
     let paths: Vec<_> = ["A.wav", "B.wav", "C.wav"]
         .iter()
         .map(|n| cons.join(n))
@@ -228,7 +240,7 @@ fn f_cross_project_historical_dedup() {
     let a = h.wav(&cons_a, "foo.wav", 42);
     let b = h.wav(&cons_b, "bar.wav", 42);
     assert_eq!(hash_file(&a).unwrap(), hash_file(&b).unwrap());
-    h.add_local();
+    h.add_farm_storage();
     let r1 = import_historical(&mut h.conn, &als_a, None, &[sel(&a, Category::Other)], &fast()).unwrap();
     assert_eq!(r1.new_assets, 1);
     let r2 = import_historical(&mut h.conn, &als_b, None, &[sel(&b, Category::Other)], &fast()).unwrap();
@@ -243,7 +255,7 @@ fn g_historical_source_safety() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "88");
     let f = h.wav(&cons, "keepme.wav", 11);
-    h.add_local();
+    h.add_farm_storage();
     let hash_before = hash_file(&f).unwrap();
     let bytes_before = fs::read(&f).unwrap();
     import_historical(&mut h.conn, &als, None, &[sel(&f, Category::Other)], &fast()).unwrap();
@@ -282,7 +294,7 @@ fn h_historical_mirror_failure_safe_canonical() {
 fn session_harvest_ingest_type_preserved() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
-    h.add_local();
+    h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     let f = h.wav(&cons, "new.wav", 9);
     archive_session(&mut h.conn, &session.id, &[sel(&f, Category::Rhythms)], &fast()).unwrap();
@@ -296,7 +308,7 @@ fn session_harvest_ingest_type_preserved() {
 fn abandon_active_session_allows_new_start() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "88");
-    h.add_local();
+    h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     assert!(abandon_active_session(&h.conn).unwrap());
     assert!(db::find_active_session(&h.conn).unwrap().is_none());
@@ -305,4 +317,25 @@ fn abandon_active_session_allows_new_start() {
     let _ = h.wav(&cons, "new.wav", 1);
     let (_s, cands) = end_session(&h.conn, &session2.id).unwrap();
     assert_eq!(cands.len(), 1);
+}
+
+#[test]
+fn dropbox_added_later_backfills_library() {
+    let mut h = Harness::new();
+    let (als, cons) = h.project("HYDRA", "88");
+    h.add_farm_storage();
+    let f = h.wav(&cons, "later.wav", 3);
+    import_historical(&mut h.conn, &als, None, &[sel(&f, Category::Other)], &fast()).unwrap();
+    let drop_root = h.root.join("Dropbox");
+    fs::create_dir_all(&drop_root).unwrap();
+    let drop = h.add_location(StorageKind::DropboxFolder, "Dropbox", &drop_root);
+    let copied = sync_mirror_from_local(&h.conn, &drop).unwrap();
+    assert_eq!(copied, 1);
+    let year = Utc::now().format("%Y").to_string();
+    assert!(drop_root
+        .join("Loops")
+        .join(&year)
+        .join("Otros")
+        .join("later.wav")
+        .is_file());
 }

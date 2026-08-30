@@ -14,7 +14,7 @@ use audionautica_core::harvest::{
     CandidateSelection, LibraryFilter,
 };
 use audionautica_core::hash::hash_file;
-use audionautica_core::naming::{bpm_token, canonical_filename};
+use audionautica_core::naming::{bpm_token, library_filename_from_original};
 use chrono::Utc;
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -53,6 +53,18 @@ impl Harness {
         let lib = self.root.join("Audionautica");
         fs::create_dir_all(&lib).unwrap();
         self.add_location(StorageKind::Local, "Local Library", &lib)
+    }
+
+    fn add_drive(&mut self) -> StorageLocation {
+        let lib = self.root.join("Drive");
+        fs::create_dir_all(&lib).unwrap();
+        self.add_location(StorageKind::GoogleDriveFolder, "Drive", &lib)
+    }
+
+    fn add_farm_storage(&mut self) -> StorageLocation {
+        let local = self.add_local();
+        self.add_drive();
+        local
     }
 
     fn add_location(&mut self, kind: StorageKind, label: &str, path: &Path) -> StorageLocation {
@@ -110,7 +122,7 @@ fn a_only_new_consolidates_harvested() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
     let existing = h.wav(&cons, "0001.wav", 1);
-    h.add_local();
+    h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     let created = h.wav(&cons, "0002.wav", 2);
     let (_s, cands) = end_session(&h.conn, &session.id).unwrap();
@@ -135,7 +147,7 @@ fn b_existing_files_not_reharvested() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
     h.wav(&cons, "old.wav", 9);
-    h.add_local();
+    h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     let cands = discover_candidates(&session).unwrap();
     assert!(cands.is_empty());
@@ -146,7 +158,7 @@ fn b_existing_files_not_reharvested() {
 fn c_partial_file_not_copied() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
-    h.add_local();
+    h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     let growing = cons.join("growing.wav");
     let growing2 = growing.clone();
@@ -181,7 +193,7 @@ fn c_partial_file_not_copied() {
 fn d_blake3_duplicate_one_asset() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
-    h.add_local();
+    h.add_farm_storage();
     let a = h.wav(&cons, "loop.wav", 42);
     let session = start_session(&h.conn, &als, None).unwrap();
     let b = cons.join("loop copy.wav");
@@ -221,7 +233,7 @@ fn d_blake3_duplicate_one_asset() {
 fn e_folder_structure() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
-    let local = h.add_local();
+    let local = h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     let f = h.wav(&cons, "0003.wav", 3);
     archive_session(
@@ -247,25 +259,24 @@ fn e_folder_structure() {
         .is_dir());
 }
 
-/// F. canonical naming: BPM, project, category, counter
+/// F. musical library filename preserves clip name, strips Ableton timestamp only
 #[test]
-fn f_canonical_naming() {
-    let ts = Utc::now();
-    let name = canonical_filename(ts, Some(126.0), "HYDRA", Category::Textures, 1, "0003.wav");
-    assert!(name.starts_with("AUD_"));
-    assert!(name.contains("126BPM"));
-    assert!(name.contains("HYDRA"));
-    assert!(name.contains("TEXTURE"));
-    assert!(name.ends_with("_001.wav"));
+fn f_musical_library_filename() {
+    assert_eq!(
+        library_filename_from_original("textura [2026-08-29 184322].wav"),
+        "textura.wav"
+    );
+    assert_eq!(
+        library_filename_from_original("0003.wav"),
+        "0003.wav"
+    );
 }
 
-/// G. unknown BPM never invented
+/// G. unknown BPM never invented (metadata token only)
 #[test]
 fn g_unknown_bpm_never_invented() {
     assert_eq!(bpm_token(None), "BPMUNK");
-    let name = canonical_filename(Utc::now(), None, "HYDRA", Category::Other, 1, "x.wav");
-    assert!(name.contains("BPMUNK"));
-    assert!(!name.contains("120BPM"));
+    assert!(!bpm_token(None).contains("120BPM"));
 }
 
 /// H. one failed mirror does not corrupt canonical library
@@ -273,7 +284,7 @@ fn g_unknown_bpm_never_invented() {
 fn h_failed_mirror_does_not_corrupt_canonical() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
-    let local = h.add_local();
+    let local = h.add_farm_storage();
     let bad = h.root.join("not-a-folder.txt");
     fs::write(&bad, b"nope").unwrap();
     h.add_location(StorageKind::DropboxFolder, "Dropbox", &bad);
@@ -304,7 +315,7 @@ fn h_failed_mirror_does_not_corrupt_canonical() {
 fn i_source_safety() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
-    h.add_local();
+    h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     let f = h.wav(&cons, "keepme.wav", 11);
     let path_before = f.clone();
@@ -328,7 +339,7 @@ fn i_source_safety() {
 fn j_idempotent_second_run() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
-    h.add_local();
+    h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     let f = h.wav(&cons, "once.wav", 8);
     archive_session(
@@ -371,7 +382,7 @@ fn k_cross_platform_paths() {
     fs::create_dir_all(&cons).unwrap();
     let als = weird.join("textura ñoño.als");
     write_als(&als, "100");
-    h.add_local();
+    h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     let f = h.wav(&cons, "loop final 01.wav", 5);
     let report = archive_session(
@@ -384,9 +395,7 @@ fn k_cross_platform_paths() {
     assert_eq!(report.new_assets, 1);
     let asset = &list_library(&h.conn, &LibraryFilter::default()).unwrap()[0];
     assert!(Path::new(&asset.canonical_path).is_file());
-    assert!(!asset.canonical_filename.contains(' '));
-    assert!(!asset.canonical_filename.contains(':'));
-    assert!(!asset.canonical_filename.contains('*'));
+    assert_eq!(asset.canonical_filename, "loop final 01.wav");
 }
 
 #[test]
@@ -411,7 +420,7 @@ fn copy_status_enum_roundtrip() {
 fn library_filter_by_category_and_year() {
     let mut h = Harness::new();
     let (als, cons) = h.project("HYDRA", "126");
-    h.add_local();
+    h.add_farm_storage();
     let session = start_session(&h.conn, &als, None).unwrap();
     let a = h.wav(&cons, "a.wav", 1);
     let b = h.wav(&cons, "b.wav", 2);

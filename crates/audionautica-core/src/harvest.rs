@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -12,8 +13,9 @@ use crate::audio::probe_file;
 use crate::db;
 use crate::domain::{
     new_id, AssetStorageLocation, AudioAsset, Category, ChangeKind, CopyStatus, FileFingerprint,
-    HarvestEvent, HistoricalConsolidate, IngestType, Project, ProjectLibraryStatus, Session,
-    SessionSnapshot, SessionStatus, SourceType, StorageKind, StorageLocation,
+    HarvestEvent, HistoricalConsolidate, IgnoredConsolidateInput, IngestType, Project,
+    ProjectLibraryStatus, Session, SessionSnapshot, SessionStatus, SourceType, StorageKind,
+    StorageLocation,
 };
 pub use crate::domain::{
     DuplicateSkip, HarvestCandidate, HarvestedAssetSummary, StorageCopySummary,
@@ -22,7 +24,9 @@ use crate::error::{AppError, AppResult};
 use crate::fsutil::copy::copy_verified;
 use crate::fsutil::stability::{wait_until_stable, StabilityConfig, StabilityError};
 use crate::hash::hash_file;
-use crate::naming::{canonical_filename, is_supported_audio_filename};
+use crate::naming::{
+    is_supported_audio_filename, library_filename_from_original, resolve_filename_collision,
+};
 use crate::storage::{ensure_year_taxonomy, library_relative, FilesystemProvider, StorageProvider};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,7 +58,6 @@ pub struct LibraryFilter {
 struct IngestContext {
     session_id: String,
     project_id: String,
-    project_name: String,
     source_session_bpm: Option<f64>,
     ingest_type: IngestType,
 }
@@ -71,6 +74,7 @@ pub fn scan_historical_consolidates(
     let project = upsert_project_from_info(conn, &info)?;
     let snapshot = scan_snapshot(&info.consolidate_dir)?;
     let known_hashes = db::all_content_hashes(conn)?;
+    let ignored_hashes = db::ignored_hashes_for_project(conn, &project.id)?;
     let mut pending = Vec::new();
     let mut archived_count = 0u32;
 
@@ -88,12 +92,16 @@ pub fn scan_historical_consolidates(
             Ok(h) => h,
             Err(_) => continue,
         };
+        if ignored_hashes.contains(&content_hash) {
+            continue;
+        }
         if known_hashes.contains(&content_hash) {
             archived_count += 1;
             continue;
         }
         pending.push(HistoricalConsolidate {
             original_path: original_path.to_string_lossy().to_string(),
+            library_filename: library_filename_from_original(&original_filename),
             original_filename,
             relative_path: file.relative_path,
             size_bytes: file.size_bytes,
@@ -156,7 +164,6 @@ pub fn import_historical(
     let ctx = IngestContext {
         session_id: session.id.clone(),
         project_id: project.id,
-        project_name: project.name,
         source_session_bpm: bpm,
         ingest_type: IngestType::HistoricalImport,
     };
@@ -236,7 +243,11 @@ pub fn end_session(
 ) -> AppResult<(Session, Vec<HarvestCandidate>)> {
     let mut session = db::get_session(conn, session_id)?
         .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
-    let candidates = discover_candidates(&session)?;
+    let ignored = db::ignored_hashes_for_project(conn, &session.project_id)?;
+    let candidates: Vec<HarvestCandidate> = discover_candidates(&session)?
+        .into_iter()
+        .filter(|c| !ignored.contains(&c.content_hash))
+        .collect();
     session.end_time = Some(Utc::now());
     session.status = if candidates.is_empty() {
         SessionStatus::Archived
@@ -289,14 +300,20 @@ pub fn discover_candidates(session: &Session) -> AppResult<Vec<HarvestCandidate>
             if !is_supported_audio_filename(&original_filename) {
                 continue;
             }
+            let content_hash = hash_file(&original_path).unwrap_or_default();
+            if content_hash.is_empty() {
+                continue;
+            }
             out.push(HarvestCandidate {
                 original_path: original_path.to_string_lossy().to_string(),
+                library_filename: library_filename_from_original(&original_filename),
                 original_filename,
                 relative_path: file.relative_path,
                 size_bytes: file.size_bytes,
                 modified_at: DateTime::from_timestamp_millis(file.modified_unix_ms)
                     .unwrap_or_else(Utc::now),
                 change_kind,
+                content_hash,
             });
         }
     }
@@ -347,7 +364,6 @@ pub fn archive_session(
     let ctx = IngestContext {
         session_id: session.id.clone(),
         project_id: session.project_id.clone(),
-        project_name: session.project_name.clone(),
         source_session_bpm: session.source_session_bpm,
         ingest_type: IngestType::SessionHarvest,
     };
@@ -392,6 +408,10 @@ fn ingest_selected(
         .find(|l| l.kind == StorageKind::Local)
         .cloned()
         .ok_or(AppError::LocalLibraryMissing)?;
+    locations
+        .iter()
+        .find(|l| l.kind == StorageKind::GoogleDriveFolder && l.enabled)
+        .ok_or(AppError::DriveLibraryMissing)?;
 
     let selected: Vec<&CandidateSelection> = selections.iter().filter(|s| s.selected).collect();
     let mut report = HarvestReport {
@@ -418,6 +438,7 @@ fn ingest_selected(
     let now = Utc::now();
     let year = now.year_for_library();
     ensure_year_taxonomy(Path::new(&local.root_path), year)?;
+    let mut allocated_filenames: HashSet<String> = HashSet::new();
 
     for sel in &selected {
         let source = PathBuf::from(&sel.original_path);
@@ -498,15 +519,11 @@ fn ingest_selected(
 
         let probe = probe_file(&source);
         let category = sel.category;
-        let seq = db::next_sequence(conn, year, category, &ctx.project_id)?;
-        let canonical = canonical_filename(
-            now,
-            ctx.source_session_bpm,
-            &ctx.project_name,
-            category,
-            seq,
-            &filename,
-        );
+        let base = library_filename_from_original(&filename);
+        let mut taken = db::list_library_filenames_in_category(conn, year, category)?;
+        taken.extend(allocated_filenames.iter().cloned());
+        let canonical = resolve_filename_collision(&base, &taken);
+        allocated_filenames.insert(canonical.clone());
         let relative = library_relative(year, category, &canonical);
         let canonical_path = Path::new(&local.root_path).join(&relative);
 
@@ -684,6 +701,88 @@ fn ingest_selected(
     }
 
     Ok(report)
+}
+
+pub fn ignore_consolidates(
+    conn: &Connection,
+    project_id: &str,
+    items: &[IgnoredConsolidateInput],
+) -> AppResult<u32> {
+    let mut count = 0u32;
+    for item in items {
+        db::insert_ignored_consolidate(
+            conn,
+            project_id,
+            &item.content_hash,
+            &item.original_path,
+            &item.original_filename,
+        )?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+/// Copy every canonical library file into a newly configured mirror (Drive/Dropbox).
+pub fn sync_mirror_from_local(conn: &Connection, location: &StorageLocation) -> AppResult<u32> {
+    if !location.enabled || location.kind == StorageKind::Local {
+        return Ok(0);
+    }
+    if db::list_storage_locations(conn)?
+        .iter()
+        .all(|l| l.kind != StorageKind::Local || !l.enabled)
+    {
+        return Err(AppError::LocalLibraryMissing);
+    }
+    let assets = db::list_assets(conn, None, None, None)?;
+    let provider = FilesystemProvider::new(location.clone());
+    let mut copied = 0u32;
+    let mut years: HashSet<i32> = HashSet::new();
+    for asset in &assets {
+        years.insert(asset.year);
+    }
+    for year in years {
+        ensure_year_taxonomy(Path::new(&location.root_path), year)?;
+    }
+    for asset in assets {
+        let relative = library_relative(asset.year, asset.category, &asset.canonical_filename);
+        let source = PathBuf::from(&asset.canonical_path);
+        if !source.is_file() {
+            continue;
+        }
+        let now = Utc::now();
+        match provider.put_relative(&relative, &source) {
+            Ok(_) => {
+                db::upsert_asset_storage(
+                    conn,
+                    &AssetStorageLocation {
+                        id: new_id(),
+                        asset_id: asset.id.clone(),
+                        storage_location_id: location.id.clone(),
+                        relative_path: relative.to_string_lossy().to_string(),
+                        copy_status: CopyStatus::Copied,
+                        error_message: None,
+                        copied_at: Some(now),
+                    },
+                )?;
+                copied += 1;
+            }
+            Err(e) => {
+                db::upsert_asset_storage(
+                    conn,
+                    &AssetStorageLocation {
+                        id: new_id(),
+                        asset_id: asset.id.clone(),
+                        storage_location_id: location.id.clone(),
+                        relative_path: relative.to_string_lossy().to_string(),
+                        copy_status: CopyStatus::Failed,
+                        error_message: Some(e.to_string()),
+                        copied_at: None,
+                    },
+                )?;
+            }
+        }
+    }
+    Ok(copied)
 }
 
 pub fn list_library(conn: &Connection, filter: &LibraryFilter) -> AppResult<Vec<AudioAsset>> {

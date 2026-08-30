@@ -46,6 +46,9 @@ pub enum AppError {
     #[error("Configura primero la biblioteca local (Local Library).")]
     LocalLibraryMissing,
 
+    #[error("Configura primero la carpeta de Google Drive para farmear.")]
+    DriveLibraryMissing,
+
     #[error("Asset no encontrado en la biblioteca: {0}")]
     AssetNotFound(String),
 
@@ -90,6 +93,7 @@ impl AppError {
             AppError::NoActiveSession => "no_active_session",
             AppError::SessionNotFound(_) => "session_not_found",
             AppError::LocalLibraryMissing => "local_library_missing",
+            AppError::DriveLibraryMissing => "drive_library_missing",
             AppError::AssetNotFound(_) => "asset_not_found",
             AppError::InvalidPath(_) => "invalid_path",
             AppError::Other(_) => "other",

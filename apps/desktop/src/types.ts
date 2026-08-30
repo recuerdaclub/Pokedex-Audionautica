@@ -9,10 +9,10 @@ export type Category =
   | "OTHER";
 
 export const CATEGORIES: { id: Category; label: string }[] = [
-  { id: "HARMONIES", label: "Armonías" },
+  { id: "HARMONIES", label: "Armonias" },
   { id: "RHYTHMS", label: "Ritmos" },
   { id: "TEXTURES", label: "Texturas" },
-  { id: "PERCUSSION", label: "Percusión" },
+  { id: "PERCUSSION", label: "Percusion" },
   { id: "BASS", label: "Bajos" },
   { id: "VOICES", label: "Voces" },
   { id: "FIELD_FX", label: "Field / FX" },
@@ -66,10 +66,12 @@ export interface Session {
 export interface HarvestCandidate {
   original_path: string;
   original_filename: string;
+  library_filename: string;
   relative_path: string;
   size_bytes: number;
   modified_at: string;
   change_kind: "NEW" | "MODIFIED";
+  content_hash: string;
 }
 
 export interface CandidateSelection {
@@ -113,10 +115,17 @@ export type IngestType = "SESSION_HARVEST" | "HISTORICAL_IMPORT";
 export interface HistoricalConsolidate {
   original_path: string;
   original_filename: string;
+  library_filename: string;
   relative_path: string;
   size_bytes: number;
   modified_at: string;
   content_hash: string;
+}
+
+export interface IgnoredConsolidateInput {
+  original_path: string;
+  content_hash: string;
+  original_filename: string;
 }
 
 export interface ProjectLibraryStatus {

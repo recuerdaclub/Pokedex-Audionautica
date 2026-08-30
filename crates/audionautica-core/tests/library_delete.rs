@@ -48,6 +48,20 @@ fn delete_from_library_removes_canonical_keeps_ableton_source() {
         },
     )
     .unwrap();
+    let drive = root.join("Drive");
+    fs::create_dir_all(&drive).unwrap();
+    db::upsert_storage_location(
+        &conn,
+        &StorageLocation {
+            id: new_id(),
+            kind: StorageKind::GoogleDriveFolder,
+            label: "Drive".into(),
+            root_path: drive.to_string_lossy().to_string(),
+            enabled: true,
+            created_at: Utc::now(),
+        },
+    )
+    .unwrap();
     let source = cons.join("loop.wav");
     write_pcm_wav(&source, 44100, 1, &(0..1000i16).collect::<Vec<_>>());
     let hash_before = hash_file(&source).unwrap();

@@ -10,6 +10,7 @@ use audionautica_core::fsutil::stability::StabilityConfig;
 use audionautica_core::harvest::{
     self, CandidateSelection, HarvestCandidate, HarvestReport, LibraryFilter,
 };
+use audionautica_core::domain::IgnoredConsolidateInput;
 use audionautica_core::logging;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -180,6 +181,9 @@ fn save_storage_location(
             .unwrap_or_else(chrono::Utc::now),
     };
     db::upsert_storage_location(&conn, &loc).map_err(map_err)?;
+    if loc.enabled && loc.kind != StorageKind::Local {
+        harvest::sync_mirror_from_local(&conn, &loc).map_err(map_err)?;
+    }
     drop(conn);
     snapshot(&state)
 }
@@ -190,6 +194,25 @@ fn delete_storage_location(state: State<AppState>, id: String) -> Result<UiAppSt
     db::delete_storage_location(&conn, &id).map_err(map_err)?;
     drop(conn);
     snapshot(&state)
+}
+
+#[tauri::command]
+fn ignore_consolidates(
+    state: State<AppState>,
+    project_id: String,
+    items: Vec<IgnoredConsolidateInput>,
+) -> Result<u32, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    harvest::ignore_consolidates(&conn, &project_id, &items).map_err(map_err)
+}
+
+#[tauri::command]
+fn reveal_path(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("La ruta no existe: {path}"));
+    }
+    open::that(p).map_err(|e| format!("No se pudo abrir la ruta: {e}"))
 }
 
 #[tauri::command]
@@ -252,6 +275,7 @@ pub fn run() {
             inspect_ableton_set,
             scan_historical_consolidates,
             import_historical,
+            ignore_consolidates,
             abandon_session,
             start_session,
             end_session,
@@ -262,6 +286,7 @@ pub fn run() {
             list_library,
             list_projects,
             delete_from_library,
+            reveal_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Audionáutica");

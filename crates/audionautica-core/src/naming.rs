@@ -1,45 +1,104 @@
-use chrono::{DateTime, Utc};
+use std::collections::HashSet;
+use std::path::Path;
 
-use crate::domain::Category;
-use crate::fsutil::sanitize_filename_token;
+/// Ableton Live appends a timestamp suffix immediately before the extension:
+/// `nombre musical [YYYY-MM-DD HHMMSS].ext`
+///
+/// Example: `textura agua [2026-08-29 184322].wav` → `textura agua.wav`
+pub fn strip_ableton_consolidate_timestamp(filename: &str) -> String {
+    let path = Path::new(filename);
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_string());
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(filename);
 
-/// Canonical library filename convention (deterministic):
-///
-/// ```text
-/// AUD_{YYYYMMDD}_{BPMTOKEN}_{PROJECT}_{CATEGORY}_{NNN}.{ext}
-/// ```
-///
-/// - `BPMTOKEN` is `{n}BPM` when `sourceSessionBpm` is known, otherwise `BPMUNK`.
-///   BPM is never invented.
-/// - `PROJECT` is a sanitized uppercase slug of the Ableton set / project name.
-/// - `CATEGORY` is the filename token (TEXTURE, RHYTHM, …).
-/// - `NNN` is a 3-digit counter (expands if needed).
-///
-/// Examples:
-/// - `AUD_20260829_126BPM_HYDRA_TEXTURE_001.wav`
-/// - `AUD_20260829_BPMUNK_HYDRA_OTHER_001.aiff`
-pub fn canonical_filename(
-    harvested_at: DateTime<Utc>,
-    source_session_bpm: Option<f64>,
-    project_name: &str,
-    category: Category,
-    sequence: u32,
-    original_filename: &str,
-) -> String {
-    let date = harvested_at.format("%Y%m%d").to_string();
-    let bpm = bpm_token(source_session_bpm);
-    let project = sanitize_filename_token(project_name, 24);
-    let project = if project.is_empty() {
-        "PROJECT".to_string()
-    } else {
-        project
-    };
-    let cat = category.filename_token();
-    let seq = format!("{sequence:03}");
-    let ext = extension_of(original_filename);
-    format!("AUD_{date}_{bpm}_{project}_{cat}_{seq}.{ext}")
+    if let Some(open) = stem.rfind(" [") {
+        let suffix = &stem[open..];
+        if is_ableton_timestamp_suffix(suffix) {
+            let clean_stem = &stem[..open];
+            return match ext {
+                Some(e) if !e.is_empty() => format!("{clean_stem}.{e}"),
+                _ => clean_stem.to_string(),
+            };
+        }
+    }
+
+    filename.to_string()
 }
 
+/// Library filename preserves the musical name with only Ableton's automatic timestamp removed.
+pub fn library_filename_from_original(original_filename: &str) -> String {
+    strip_ableton_consolidate_timestamp(original_filename)
+}
+
+/// When two different assets clean to the same filename, allocate `name (2).ext`, `name (3).ext`, …
+pub fn resolve_filename_collision(base: &str, taken: &HashSet<String>) -> String {
+    if !taken.contains(base) {
+        return base.to_string();
+    }
+    let (stem, ext) = split_stem_ext(base);
+    let mut n = 2u32;
+    loop {
+        let candidate = if ext.is_empty() {
+            format!("{stem} ({n})")
+        } else {
+            format!("{stem} ({n}).{ext}")
+        };
+        if !taken.contains(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+pub fn extension_of(filename: &str) -> String {
+    Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| "wav".to_string())
+}
+
+pub fn is_supported_audio_filename(filename: &str) -> bool {
+    matches!(
+        extension_of(filename).as_str(),
+        "wav" | "aif" | "aiff" | "flac"
+    )
+}
+
+fn split_stem_ext(filename: &str) -> (String, String) {
+    match filename.rfind('.') {
+        Some(i) if i > 0 => (filename[..i].to_string(), filename[i + 1..].to_string()),
+        _ => (filename.to_string(), String::new()),
+    }
+}
+
+/// ` [YYYY-MM-DD HHMMSS]` — only when immediately before extension (validated on suffix segment).
+fn is_ableton_timestamp_suffix(suffix: &str) -> bool {
+    // suffix begins with " [" and ends with ']'
+    if suffix.len() != 20 || !suffix.starts_with(" [") || !suffix.ends_with(']') {
+        return false;
+    }
+    let inner = &suffix[2..suffix.len() - 1];
+    if inner.len() != 17 {
+        return false;
+    }
+    let b = inner.as_bytes();
+    b[0..4].iter().all(|c| c.is_ascii_digit())
+        && b[4] == b'-'
+        && b[5..7].iter().all(|c| c.is_ascii_digit())
+        && b[7] == b'-'
+        && b[8..10].iter().all(|c| c.is_ascii_digit())
+        && b[10] == b' '
+        && b[11..17].iter().all(|c| c.is_ascii_digit())
+}
+
+// Legacy BPM token helper — metadata only, not used in library filenames.
 pub fn bpm_token(bpm: Option<f64>) -> String {
     match bpm {
         None => "BPMUNK".to_string(),
@@ -57,50 +116,76 @@ pub fn bpm_token(bpm: Option<f64>) -> String {
     }
 }
 
-pub fn extension_of(filename: &str) -> String {
-    std::path::Path::new(filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .filter(|e| !e.is_empty())
-        .unwrap_or_else(|| "wav".to_string())
-}
-
-pub fn is_supported_audio_filename(filename: &str) -> bool {
-    matches!(
-        extension_of(filename).as_str(),
-        "wav" | "aif" | "aiff" | "flac"
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
-
-    fn ts() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 8, 29, 12, 0, 0).unwrap()
-    }
 
     #[test]
-    fn known_bpm_in_name() {
-        let name = canonical_filename(
-            ts(),
-            Some(126.0),
-            "HYDRA",
-            Category::Textures,
-            1,
-            "0003.wav",
+    fn strip_simple_timestamp() {
+        assert_eq!(
+            strip_ableton_consolidate_timestamp("loop [2026-08-29 184322].wav"),
+            "loop.wav"
         );
-        assert_eq!(name, "AUD_20260829_126BPM_HYDRA_TEXTURE_001.wav");
     }
 
     #[test]
-    fn unknown_bpm_never_invented() {
-        let name = canonical_filename(ts(), None, "HYDRA", Category::Other, 7, "clip.aiff");
-        assert_eq!(name, "AUD_20260829_BPMUNK_HYDRA_OTHER_007.aiff");
-        assert!(!name.contains("120BPM"));
-        assert!(!name.contains("126BPM"));
+    fn strip_spaced_musical_name() {
+        assert_eq!(
+            strip_ableton_consolidate_timestamp("textura agua [2026-08-29 184322].wav"),
+            "textura agua.wav"
+        );
+    }
+
+    #[test]
+    fn strip_preserves_embedded_year_in_name() {
+        assert_eq!(
+            strip_ableton_consolidate_timestamp("jam 2025 textura [2026-08-29 184322].wav"),
+            "jam 2025 textura.wav"
+        );
+    }
+
+    #[test]
+    fn does_not_strip_arbitrary_date_in_name() {
+        let unchanged = "grabacion 2026-08-29 final.wav";
+        assert_eq!(
+            strip_ableton_consolidate_timestamp(unchanged),
+            unchanged
+        );
+    }
+
+    #[test]
+    fn unchanged_without_ableton_timestamp() {
+        let unchanged = "ritmo base.wav";
+        assert_eq!(strip_ableton_consolidate_timestamp(unchanged), unchanged);
+    }
+
+    #[test]
+    fn unicode_and_accents_preserved() {
+        assert_eq!(
+            strip_ableton_consolidate_timestamp("Percusión Acuática Ñ [2026-08-29 184322].wav"),
+            "Percusión Acuática Ñ.wav"
+        );
+    }
+
+    #[test]
+    fn collision_suffix_human() {
+        let mut taken = HashSet::new();
+        taken.insert("textura.wav".to_string());
+        assert_eq!(resolve_filename_collision("textura.wav", &taken), "textura (2).wav");
+        taken.insert("textura (2).wav".to_string());
+        assert_eq!(resolve_filename_collision("textura.wav", &taken), "textura (3).wav");
+    }
+
+    #[test]
+    fn preserves_original_extension() {
+        assert_eq!(
+            library_filename_from_original("clip [2026-08-29 184322].aiff"),
+            "clip.aiff"
+        );
+        assert_eq!(
+            extension_of("a.FLAC"),
+            "flac"
+        );
     }
 
     #[test]
@@ -108,27 +193,5 @@ mod tests {
         assert_eq!(bpm_token(Some(0.0)), "BPMUNK");
         assert_eq!(bpm_token(Some(-10.0)), "BPMUNK");
         assert_eq!(bpm_token(Some(f64::NAN)), "BPMUNK");
-    }
-
-    #[test]
-    fn sequence_and_category_and_project() {
-        let name = canonical_filename(
-            ts(),
-            Some(90.0),
-            "my project!!",
-            Category::Rhythms,
-            12,
-            "loop.wav",
-        );
-        assert!(name.contains("_RHYTHM_"));
-        assert!(name.contains("_012."));
-        assert!(name.contains("90BPM"));
-    }
-
-    #[test]
-    fn preserves_original_extension() {
-        assert!(
-            canonical_filename(ts(), None, "P", Category::Other, 1, "a.FLAC").ends_with(".flac")
-        );
     }
 }

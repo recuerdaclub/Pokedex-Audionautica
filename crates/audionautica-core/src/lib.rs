@@ -17,8 +17,10 @@ pub mod storage;
 
 pub use error::{AppError, AppResult};
 pub use harvest::{
-    abandon_active_session, archive_session, discover_candidates, end_session, import_historical,
-    scan_historical_consolidates, start_session, CandidateSelection, HarvestReport, LibraryFilter,
+    abandon_active_session, archive_session, discover_candidates, end_session, ignore_consolidates,
+    import_historical, scan_historical_consolidates, start_session, sync_mirror_from_local,
+    CandidateSelection,
+    HarvestReport, LibraryFilter,
 };
 pub use library::delete_from_library;
 pub use domain::DeleteFromLibraryReport;
