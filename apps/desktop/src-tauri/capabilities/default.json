@@ -1,0 +1,10 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for Audionáutica",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "opener:default"
+  ]
+}

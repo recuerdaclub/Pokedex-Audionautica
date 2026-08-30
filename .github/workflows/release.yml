@@ -1,0 +1,203 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  APP_VERSION: "1.0.0"
+  TAURI_PROJECT_PATH: apps/desktop
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: npm typecheck
+        working-directory: apps/desktop
+        run: npm run typecheck
+
+      - name: npm lint
+        working-directory: apps/desktop
+        run: npm run lint
+
+      - name: npm build
+        working-directory: apps/desktop
+        run: npm run build
+
+  build-windows:
+    name: Windows x64
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build Windows installers
+        working-directory: apps/desktop
+        run: npm run tauri build -- --bundles nsis,msi
+
+      - name: Collect release artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+          $nsis = Get-ChildItem -Path "target/release/bundle/nsis" -Filter "*.exe" | Select-Object -First 1
+          $msi = Get-ChildItem -Path "target/release/bundle/msi" -Filter "*.msi" | Select-Object -First 1
+          if (-not $nsis) { throw "NSIS installer not found" }
+          Copy-Item $nsis.FullName "release-artifacts/Audionautica_${{ env.APP_VERSION }}_x64-setup.exe"
+          if ($msi) {
+            Copy-Item $msi.FullName "release-artifacts/Audionautica_${{ env.APP_VERSION }}_x64_en-US.msi"
+          }
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: audionautica-windows-x64-v${{ env.APP_VERSION }}
+          path: release-artifacts/*
+          if-no-files-found: error
+
+  build-macos:
+    name: macOS universal
+    needs: validate
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build universal macOS DMG
+        id: universal
+        working-directory: apps/desktop
+        continue-on-error: true
+        run: npm run tauri build -- --target universal-apple-darwin --bundles dmg
+
+      - name: Build arm64 macOS DMG (fallback)
+        if: steps.universal.outcome == 'failure'
+        working-directory: apps/desktop
+        run: npm run tauri build -- --target aarch64-apple-darwin --bundles dmg
+
+      - name: Build x86_64 macOS DMG (fallback)
+        if: steps.universal.outcome == 'failure'
+        working-directory: apps/desktop
+        run: npm run tauri build -- --target x86_64-apple-darwin --bundles dmg
+
+      - name: Collect macOS artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          if ls target/release/bundle/dmg/*universal*.dmg 1>/dev/null 2>&1; then
+            cp target/release/bundle/dmg/*universal*.dmg "release-artifacts/Audionautica_${APP_VERSION}_universal.dmg"
+          elif ls target/release/bundle/dmg/*.dmg 1>/dev/null 2>&1; then
+            for dmg in target/release/bundle/dmg/*.dmg; do
+              base=$(basename "$dmg")
+              if echo "$base" | grep -qi aarch64; then
+                cp "$dmg" "release-artifacts/Audionautica_${APP_VERSION}_arm64.dmg"
+              elif echo "$base" | grep -qi x86_64; then
+                cp "$dmg" "release-artifacts/Audionautica_${APP_VERSION}_x86_64.dmg"
+              else
+                cp "$dmg" "release-artifacts/Audionautica_${APP_VERSION}.dmg"
+              fi
+            done
+          else
+            echo "No DMG artifacts found" >&2
+            exit 1
+          fi
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: audionautica-macos-v${{ env.APP_VERSION }}
+          path: release-artifacts/*
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: audionautica-windows-x64-v${{ env.APP_VERSION }}
+          path: dist/windows
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: audionautica-macos-v${{ env.APP_VERSION }}
+          path: dist/macos
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find dist/windows dist/macos -type f -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS.txt
+          cat dist/SHA256SUMS.txt
+
+      - name: Create pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Audionautica ${{ env.APP_VERSION }}
+          prerelease: true
+          generate_release_notes: false
+          body_path: release/v1.0.0/RELEASE_NOTES.md
+          files: |
+            dist/windows/*
+            dist/macos/*
+            dist/SHA256SUMS.txt

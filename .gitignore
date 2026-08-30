@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.npm/
+
+# Build
+dist/
+target/
+*.exe
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# App local data accidentally copied into repo
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Logs
+*.log
+logs/
+
+# Local release binaries (metadata only in git)
+release/**/*
+!release/**/README.md
+!release/**/RELEASE_NOTES.md
+
+# Broken npm reinstall leftovers
+node_modules.old/
+
+# Rustup / cargo local
+.cargo-ok
+
+# Test leftovers
+tmp/
+.cache/

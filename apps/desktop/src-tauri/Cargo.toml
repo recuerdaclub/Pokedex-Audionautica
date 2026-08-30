@@ -1,0 +1,27 @@
+[package]
+name = "audionautica"
+version.workspace = true
+description = "Audionáutica desktop"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "audionautica_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+audionautica-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+chrono.workspace = true
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

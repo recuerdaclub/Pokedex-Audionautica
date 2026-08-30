@@ -1,0 +1,25 @@
+[package]
+name = "audionautica-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Domain, harvest pipeline, Ableton adapter and SQLite persistence for Audionáutica"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+blake3.workspace = true
+rusqlite.workspace = true
+flate2.workspace = true
+symphonia.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+unicode-normalization.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
+flate2.workspace = true
+rusqlite.workspace = true

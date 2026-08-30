@@ -1,0 +1,279 @@
+:root {
+  color-scheme: dark;
+  --bg: #0c0d10;
+  --panel: #14161c;
+  --panel-2: #1b1e26;
+  --line: #2a2e38;
+  --text: #e8e6df;
+  --muted: #8b8f9a;
+  --accent: #c8f542;
+  --accent-dim: #8aa62e;
+  --danger: #ff6b6b;
+  --ok: #7dffb3;
+  --warn: #ffd166;
+  font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.app {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  background: #101218;
+}
+
+.brand {
+  letter-spacing: 0.22em;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.nav {
+  display: flex;
+  gap: 8px;
+}
+
+.nav button,
+.btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.nav button.active,
+.btn.primary {
+  background: var(--accent);
+  color: #111;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.btn.ghost:hover,
+.nav button:hover {
+  border-color: var(--accent-dim);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.layout {
+  padding: 28px 32px 48px;
+  max-width: 1080px;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  letter-spacing: 0.04em;
+}
+
+.lede {
+  color: var(--muted);
+  margin: 0 0 28px;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px 18px 16px;
+}
+
+.card h2 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.grow {
+  flex: 1;
+}
+
+label.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 9px 10px;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.path {
+  font-family: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.danger {
+  color: var(--danger);
+}
+
+.status-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.big-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 42px;
+  letter-spacing: 0.08em;
+  margin: 8px 0 18px;
+}
+
+.harvest-list {
+  display: grid;
+  gap: 8px;
+}
+
+.harvest-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.filters {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.error-banner {
+  background: #2a1515;
+  border: 1px solid var(--danger);
+  color: #ffd7d7;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.stat {
+  background: var(--panel-2);
+  padding: 14px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.stat b {
+  display: block;
+  font-size: 24px;
+  margin-top: 4px;
+}
+
+audio {
+  width: 160px;
+  height: 28px;
+}
