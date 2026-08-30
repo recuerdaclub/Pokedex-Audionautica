@@ -56,17 +56,24 @@ audionautica-lab/
 | macOS | `universal-apple-darwin` DMG | CI with arch fallback |
 | Icons | `apps/desktop/src-tauri/icons/*` | present (ico, icns, png) |
 
-## Local regression (2026-08-29)
+## Local regression (2026-08-30)
 
 | Check | Result |
 |---|---|
-| `cargo test --workspace` | **PASS** (54 tests incl. operator) |
-| `cargo clippy --workspace --all-targets -- -D warnings` | **PASS** |
-| `npm ci` | **PASS** (after node_modules refresh) |
-| `npm run typecheck` | **PASS** |
-| `npm run lint` | **PASS** |
-| `npm run build` | **PASS** |
-| `npm run tauri build -- --bundles nsis,msi` | **in progress** (Windows) |
+| `cargo test -p audionautica-core` | **PASS** |
+| `cargo clippy -p audionautica-core --all-targets -- -D warnings` | **PASS** |
+| `npm ci` / `typecheck` / `lint` / `build` | **PASS** |
+| GitHub Actions `workflow_dispatch` #33282409961 | Validate **PASS**; macOS **FAIL** (DMG path); Windows **in progress** |
+| Fix applied | macOS/Windows artifact `find` under workspace `target/` |
+
+## Repository state (2026-08-30)
+
+| Item | Value |
+|---|---|
+| Branch | `main` |
+| Remote | `https://github.com/recuerdaclub/audionautica-lab.git` |
+| Working tree | clean after release commits |
+| Tag `v1.0.0` | **not pushed yet** (pending green CI) |
 
 ## Signing
 

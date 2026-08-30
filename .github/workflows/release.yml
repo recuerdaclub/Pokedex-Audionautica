@@ -82,13 +82,18 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
-          $nsis = Get-ChildItem -Path "target/release/bundle/nsis" -Filter "*.exe" | Select-Object -First 1
-          $msi = Get-ChildItem -Path "target/release/bundle/msi" -Filter "*.msi" | Select-Object -First 1
-          if (-not $nsis) { throw "NSIS installer not found" }
+          $nsis = Get-ChildItem -Path "target" -Recurse -Filter "*-setup.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\bundle\\nsis\\' } |
+            Select-Object -First 1
+          $msi = Get-ChildItem -Path "target" -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\bundle\\msi\\' } |
+            Select-Object -First 1
+          if (-not $nsis) { throw "NSIS installer not found under target/" }
           Copy-Item $nsis.FullName "release-artifacts/Audionautica_${{ env.APP_VERSION }}_x64-setup.exe"
           if ($msi) {
             Copy-Item $msi.FullName "release-artifacts/Audionautica_${{ env.APP_VERSION }}_x64_en-US.msi"
           }
+          Get-ChildItem release-artifacts
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -142,23 +147,41 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-artifacts
-          if ls target/release/bundle/dmg/*universal*.dmg 1>/dev/null 2>&1; then
-            cp target/release/bundle/dmg/*universal*.dmg "release-artifacts/Audionautica_${APP_VERSION}_universal.dmg"
-          elif ls target/release/bundle/dmg/*.dmg 1>/dev/null 2>&1; then
-            for dmg in target/release/bundle/dmg/*.dmg; do
-              base=$(basename "$dmg")
-              if echo "$base" | grep -qi aarch64; then
-                cp "$dmg" "release-artifacts/Audionautica_${APP_VERSION}_arm64.dmg"
-              elif echo "$base" | grep -qi x86_64; then
-                cp "$dmg" "release-artifacts/Audionautica_${APP_VERSION}_x86_64.dmg"
-              else
-                cp "$dmg" "release-artifacts/Audionautica_${APP_VERSION}.dmg"
-              fi
-            done
-          else
-            echo "No DMG artifacts found" >&2
+          mapfile -t dmgs < <(find target -path '*/bundle/dmg/*.dmg' 2>/dev/null | sort -u)
+          if [ ${#dmgs[@]} -eq 0 ]; then
+            echo "No DMG artifacts found under target/" >&2
+            find target -type f -name '*.dmg' 2>/dev/null || true
             exit 1
           fi
+          universal=""
+          arm64=""
+          x86=""
+          for dmg in "${dmgs[@]}"; do
+            base=$(basename "$dmg")
+            low=$(echo "$base" | tr '[:upper:]' '[:lower:]')
+            path_low=$(echo "$dmg" | tr '[:upper:]' '[:lower:]')
+            if echo "$low$path_low" | grep -q universal; then
+              universal="$dmg"
+            elif echo "$low$path_low" | grep -Eq 'aarch64|arm64'; then
+              arm64="$dmg"
+            elif echo "$low$path_low" | grep -q x86_64; then
+              x86="$dmg"
+            fi
+          done
+          if [ -n "$universal" ]; then
+            cp "$universal" "release-artifacts/Audionautica_${APP_VERSION}_universal.dmg"
+          else
+            if [ -n "$arm64" ]; then
+              cp "$arm64" "release-artifacts/Audionautica_${APP_VERSION}_arm64.dmg"
+            fi
+            if [ -n "$x86" ]; then
+              cp "$x86" "release-artifacts/Audionautica_${APP_VERSION}_x86_64.dmg"
+            fi
+            if [ -z "$(ls -A release-artifacts 2>/dev/null)" ]; then
+              cp "${dmgs[0]}" "release-artifacts/Audionautica_${APP_VERSION}.dmg"
+            fi
+          fi
+          ls -la release-artifacts/
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
