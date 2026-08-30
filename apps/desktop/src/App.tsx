@@ -4,6 +4,7 @@ import {
   archiveSession,
   abandonSession,
   deleteStorageLocation,
+  deleteFromLibrary,
   endSession,
   formatBpm,
   formatDuration,
@@ -419,6 +420,22 @@ export default function App() {
             setFilterYear={setFilterYear}
             setFilterCategory={setFilterCategory}
             setFilterProject={setFilterProject}
+            onDelete={async (assetId) => {
+              setBusy(true);
+              setError(null);
+              try {
+                const report = await deleteFromLibrary(assetId);
+                if (report.errors.length) {
+                  setError(report.errors.join(" · "));
+                }
+                await openLibrary();
+              } catch (e) {
+                setError(String(e));
+              } finally {
+                setBusy(false);
+              }
+            }}
+            busy={busy}
           />
         ) : null}
       </main>
@@ -931,6 +948,8 @@ function LibraryView(props: {
   setFilterYear: (v: string) => void;
   setFilterCategory: (v: Category | "") => void;
   setFilterProject: (v: string) => void;
+  onDelete: (assetId: string) => void;
+  busy: boolean;
 }) {
   return (
     <section>
@@ -982,6 +1001,7 @@ function LibraryView(props: {
             <th>Fecha</th>
             <th>Duración</th>
             <th>Preview</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -995,6 +1015,20 @@ function LibraryView(props: {
               <td>{formatDuration(a.duration_seconds)}</td>
               <td>
                 <audio controls preload="none" src={convertFileSrc(a.canonical_path)} />
+              </td>
+              <td>
+                <button
+                  className="btn danger"
+                  disabled={props.busy}
+                  onClick={() => {
+                    const ok = window.confirm(
+                      `¿Eliminar "${a.canonical_filename}" de la biblioteca?\n\nSe borrarán las copias en Local/Drive/Dropbox.\nEl Consolidate original en Ableton NO se toca.`,
+                    );
+                    if (ok) props.onDelete(a.id);
+                  }}
+                >
+                  Eliminar
+                </button>
               </td>
             </tr>
           ))}

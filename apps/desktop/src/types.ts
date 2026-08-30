@@ -128,6 +128,22 @@ export interface ProjectLibraryStatus {
   synced: boolean;
 }
 
+export interface DeleteFromLibraryReport {
+  asset_id: string;
+  canonical_filename: string;
+  removed_from_db: boolean;
+  source_preserved: boolean;
+  locations: {
+    storage_location_id: string;
+    kind: StorageKind;
+    label: string;
+    path: string;
+    deleted: boolean;
+    error: string | null;
+  }[];
+  errors: string[];
+}
+
 export interface AudioAsset {
   id: string;
   source_type: string;

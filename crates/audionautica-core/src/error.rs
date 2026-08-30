@@ -46,6 +46,9 @@ pub enum AppError {
     #[error("Configura primero la biblioteca local (Local Library).")]
     LocalLibraryMissing,
 
+    #[error("Asset no encontrado en la biblioteca: {0}")]
+    AssetNotFound(String),
+
     #[error("Ruta inválida: {0}")]
     InvalidPath(String),
 
@@ -87,6 +90,7 @@ impl AppError {
             AppError::NoActiveSession => "no_active_session",
             AppError::SessionNotFound(_) => "session_not_found",
             AppError::LocalLibraryMissing => "local_library_missing",
+            AppError::AssetNotFound(_) => "asset_not_found",
             AppError::InvalidPath(_) => "invalid_path",
             AppError::Other(_) => "other",
         }

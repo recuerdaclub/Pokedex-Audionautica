@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::domain::{
     AssetStorageLocation, AudioAsset, Category, HarvestEvent, IngestType, Project, Session,
-    SessionSnapshot, SessionStatus, SourceType, StorageKind, StorageLocation,
+    SessionSnapshot, SessionStatus, SourceType, StorageKind, StorageLocation, CopyStatus,
 };
 use crate::error::{AppError, AppResult};
 
@@ -337,6 +337,74 @@ pub fn insert_asset(conn: &Connection, asset: &AudioAsset) -> AppResult<()> {
             asset.ingest_type.as_str()
         ],
     )?;
+    Ok(())
+}
+
+pub fn get_asset(conn: &Connection, id: &str) -> AppResult<Option<AudioAsset>> {
+    conn.query_row(
+        "SELECT id, source_type, original_filename, original_path, canonical_filename, canonical_path,
+                project_id, session_id, category, year, source_session_bpm, detected_bpm,
+                created_at, harvested_at, source_modified_at, duration_seconds, sample_rate, channels,
+                size_bytes, content_hash, metadata_json, participant, sync_group, timeline_offset_seconds,
+                ingest_type
+         FROM audio_assets WHERE id = ?1",
+        params![id],
+        row_asset,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn list_asset_storage_for_asset(
+    conn: &Connection,
+    asset_id: &str,
+) -> AppResult<Vec<(AssetStorageLocation, StorageLocation)>> {
+    let mut stmt = conn.prepare(
+        "SELECT asl.id, asl.asset_id, asl.storage_location_id, asl.relative_path, asl.copy_status,
+                asl.error_message, asl.copied_at,
+                sl.id, sl.kind, sl.label, sl.root_path, sl.enabled, sl.created_at
+         FROM asset_storage_locations asl
+         JOIN storage_locations sl ON sl.id = asl.storage_location_id
+         WHERE asl.asset_id = ?1",
+    )?;
+    let rows = stmt.query_map(params![asset_id], |r| {
+        let copied_at: Option<String> = r.get(6)?;
+        Ok((
+            AssetStorageLocation {
+                id: r.get(0)?,
+                asset_id: r.get(1)?,
+                storage_location_id: r.get(2)?,
+                relative_path: r.get(3)?,
+                copy_status: CopyStatus::parse(&r.get::<_, String>(4)?),
+                error_message: r.get(5)?,
+                copied_at: copied_at.as_deref().map(parse_dt),
+            },
+            StorageLocation {
+                id: r.get(7)?,
+                kind: StorageKind::parse(&r.get::<_, String>(8)?),
+                label: r.get(9)?,
+                root_path: r.get(10)?,
+                enabled: r.get::<_, i64>(11)? != 0,
+                created_at: parse_dt(&r.get::<_, String>(12)?),
+            },
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+pub fn delete_asset(conn: &Connection, asset_id: &str) -> AppResult<()> {
+    conn.execute(
+        "DELETE FROM asset_storage_locations WHERE asset_id = ?1",
+        params![asset_id],
+    )?;
+    let n = conn.execute("DELETE FROM audio_assets WHERE id = ?1", params![asset_id])?;
+    if n == 0 {
+        return Err(AppError::AssetNotFound(asset_id.to_string()));
+    }
     Ok(())
 }
 

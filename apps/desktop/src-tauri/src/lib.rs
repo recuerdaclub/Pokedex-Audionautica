@@ -219,6 +219,15 @@ fn list_projects(
     db::list_projects(&conn).map_err(map_err)
 }
 
+#[tauri::command]
+fn delete_from_library(
+    state: State<AppState>,
+    asset_id: String,
+) -> Result<audionautica_core::domain::DeleteFromLibraryReport, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    audionautica_core::delete_from_library(&conn, &asset_id).map_err(map_err)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -252,6 +261,7 @@ pub fn run() {
             delete_storage_location,
             list_library,
             list_projects,
+            delete_from_library,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Audionáutica");

@@ -435,3 +435,23 @@ pub struct HarvestedAssetSummary {
     pub original_filename: String,
     pub duplicate: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageDeleteResult {
+    pub storage_location_id: StorageLocationId,
+    pub kind: StorageKind,
+    pub label: String,
+    pub path: String,
+    pub deleted: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteFromLibraryReport {
+    pub asset_id: AssetId,
+    pub canonical_filename: String,
+    pub removed_from_db: bool,
+    pub source_preserved: bool,
+    pub locations: Vec<StorageDeleteResult>,
+    pub errors: Vec<String>,
+}

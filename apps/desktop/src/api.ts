@@ -7,6 +7,7 @@ import type {
   AudioAsset,
   CandidateSelection,
   Category,
+  DeleteFromLibraryReport,
   HarvestCandidate,
   HarvestReport,
   Project,
@@ -81,6 +82,10 @@ export async function saveStorageLocation(input: {
 
 export async function deleteStorageLocation(id: string): Promise<AppState> {
   return invoke("delete_storage_location", { id });
+}
+
+export async function deleteFromLibrary(assetId: string): Promise<DeleteFromLibraryReport> {
+  return invoke("delete_from_library", { assetId });
 }
 
 export async function listLibrary(filter: {
