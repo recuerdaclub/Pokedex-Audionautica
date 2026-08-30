@@ -33,10 +33,10 @@ Desktop.ini
 *.log
 logs/
 
-# Local release binaries (metadata only in git)
-release/**/*
-!release/**/README.md
-!release/**/RELEASE_NOTES.md
+# Local release binaries (metadata docs stay in git)
+release/**/windows/**
+release/**/macos/**
+release/**/SHA256SUMS.txt
 
 # Broken npm reinstall leftovers
 node_modules.old/
