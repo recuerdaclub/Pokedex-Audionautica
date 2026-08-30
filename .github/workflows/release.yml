@@ -147,27 +147,27 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-artifacts
-          mapfile -t dmgs < <(find target -path '*/bundle/dmg/*.dmg' 2>/dev/null | sort -u)
-          if [ ${#dmgs[@]} -eq 0 ]; then
-            echo "No DMG artifacts found under target/" >&2
-            find target -type f -name '*.dmg' 2>/dev/null || true
-            exit 1
-          fi
+          echo "Searching for DMGs under target/..."
+          find target -type f -name '*.dmg' -print || true
+          first=""
           universal=""
           arm64=""
           x86=""
-          for dmg in "${dmgs[@]}"; do
-            base=$(basename "$dmg")
-            low=$(echo "$base" | tr '[:upper:]' '[:lower:]')
+          # bash 3.2 compatible (macOS runners); no mapfile
+          while IFS= read -r dmg; do
+            [ -z "$dmg" ] && continue
+            [ -z "$first" ] && first="$dmg"
             path_low=$(echo "$dmg" | tr '[:upper:]' '[:lower:]')
-            if echo "$low$path_low" | grep -q universal; then
+            if echo "$path_low" | grep -q universal; then
               universal="$dmg"
-            elif echo "$low$path_low" | grep -Eq 'aarch64|arm64'; then
+            elif echo "$path_low" | grep -Eq 'aarch64|arm64'; then
               arm64="$dmg"
-            elif echo "$low$path_low" | grep -q x86_64; then
+            elif echo "$path_low" | grep -q x86_64; then
               x86="$dmg"
             fi
-          done
+          done <<EOF
+          $(find target -type f -name '*.dmg' 2>/dev/null | sort -u)
+          EOF
           if [ -n "$universal" ]; then
             cp "$universal" "release-artifacts/Audionautica_${APP_VERSION}_universal.dmg"
           else
@@ -177,8 +177,13 @@ jobs:
             if [ -n "$x86" ]; then
               cp "$x86" "release-artifacts/Audionautica_${APP_VERSION}_x86_64.dmg"
             fi
-            if [ -z "$(ls -A release-artifacts 2>/dev/null)" ]; then
-              cp "${dmgs[0]}" "release-artifacts/Audionautica_${APP_VERSION}.dmg"
+            if [ -z "$(ls -A release-artifacts 2>/dev/null || true)" ]; then
+              if [ -n "$first" ]; then
+                cp "$first" "release-artifacts/Audionautica_${APP_VERSION}_universal.dmg"
+              else
+                echo "No DMG artifacts found under target/" >&2
+                exit 1
+              fi
             fi
           fi
           ls -la release-artifacts/
