@@ -105,6 +105,7 @@ fn sel(path: &Path, category: Category) -> CandidateSelection {
         original_path: path.to_string_lossy().to_string(),
         selected: true,
         category,
+        library_filename_override: None,
     }
 }
 
@@ -138,6 +139,23 @@ fn same_cleaned_name_different_hash_gets_suffix() {
     let r2 = import_historical(&mut h.conn, &als, None, &[sel(&b, Category::Textures)], &fast()).unwrap();
     assert_eq!(r2.new_assets, 1);
     assert_eq!(r2.assets[0].canonical_filename, "textura (2).wav");
+}
+
+#[test]
+fn harvest_respects_filename_override() {
+    let mut h = Harness::new();
+    let (als, cons) = h.project("HYDRA", "88");
+    h.add_local();
+    let wav = h.wav(&cons, "auto name [2026-08-29 180000].wav", 1);
+    let sel = CandidateSelection {
+        original_path: wav.to_string_lossy().to_string(),
+        selected: true,
+        category: Category::Textures,
+        library_filename_override: Some("mi nombre custom.wav".into()),
+    };
+    let r = import_historical(&mut h.conn, &als, None, &[sel], &fast()).unwrap();
+    assert_eq!(r.new_assets, 1);
+    assert_eq!(r.assets[0].canonical_filename, "mi nombre custom.wav");
 }
 
 #[test]

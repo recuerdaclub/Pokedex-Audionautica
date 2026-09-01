@@ -6,6 +6,8 @@ export type Category =
   | "BASS"
   | "VOICES"
   | "FIELD_FX"
+  | "GLITCH"
+  | "ATMOSPHERES"
   | "OTHER";
 
 export const CATEGORIES: { id: Category; label: string }[] = [
@@ -16,6 +18,8 @@ export const CATEGORIES: { id: Category; label: string }[] = [
   { id: "BASS", label: "Bajos" },
   { id: "VOICES", label: "Voces" },
   { id: "FIELD_FX", label: "Field / FX" },
+  { id: "GLITCH", label: "Glitch" },
+  { id: "ATMOSPHERES", label: "Atmosferas" },
   { id: "OTHER", label: "Otros" },
 ];
 
@@ -78,6 +82,7 @@ export interface CandidateSelection {
   original_path: string;
   selected: boolean;
   category: Category;
+  library_filename_override?: string | null;
 }
 
 export interface StorageCopySummary {
@@ -148,6 +153,26 @@ export interface DeleteFromLibraryReport {
     label: string;
     path: string;
     deleted: boolean;
+    error: string | null;
+  }[];
+  errors: string[];
+}
+
+export interface UpdateLibraryAssetReport {
+  asset_id: string;
+  old_filename: string;
+  new_filename: string;
+  old_category: Category;
+  new_category: Category;
+  old_relative_path: string;
+  new_relative_path: string;
+  locations: {
+    storage_location_id: string;
+    kind: StorageKind;
+    label: string;
+    old_path: string;
+    new_path: string;
+    moved: boolean;
     error: string | null;
   }[];
   errors: string[];

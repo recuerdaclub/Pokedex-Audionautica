@@ -216,7 +216,19 @@ export function ReviewScreen(props: {
                   {isActive && playing ? "❚❚" : "▶"}
                 </button>
                 <div className="review-item-main">
-                  <div className="review-item-title">{row.libraryFilename}</div>
+                  <input
+                    type="text"
+                    className="review-item-title-input"
+                    value={sel?.library_filename_override ?? row.libraryFilename}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      patch(row.originalPath, {
+                        library_filename_override:
+                          v.trim() === row.libraryFilename ? null : v,
+                      });
+                    }}
+                    aria-label={`Nombre en biblioteca para ${row.libraryFilename}`}
+                  />
                 </div>
                 <select
                   value={sel?.category ?? "OTHER"}

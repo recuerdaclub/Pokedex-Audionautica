@@ -14,6 +14,7 @@ import type {
   ProjectLibraryStatus,
   Session,
   StorageKind,
+  UpdateLibraryAssetReport,
 } from "./types";
 
 export async function getAppState(): Promise<AppState> {
@@ -93,6 +94,18 @@ export async function ignoreConsolidates(
 
 export async function deleteFromLibrary(assetId: string): Promise<DeleteFromLibraryReport> {
   return invoke("delete_from_library", { assetId });
+}
+
+export async function updateLibraryAsset(
+  assetId: string,
+  newCategory: Category | null,
+  newFilename: string | null,
+): Promise<UpdateLibraryAssetReport> {
+  return invoke("update_library_asset", {
+    assetId,
+    newCategory,
+    newFilename,
+  });
 }
 
 export async function listLibrary(filter: {

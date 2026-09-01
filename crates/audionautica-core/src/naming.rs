@@ -1,6 +1,10 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use unicode_normalization::UnicodeNormalization;
+
+use crate::error::{AppError, AppResult};
+
 /// Ableton Live appends a timestamp suffix immediately before the extension:
 /// `nombre musical [YYYY-MM-DD HHMMSS].ext`
 ///
@@ -33,6 +37,74 @@ pub fn strip_ableton_consolidate_timestamp(filename: &str) -> String {
 /// Library filename preserves the musical name with only Ableton's automatic timestamp removed.
 pub fn library_filename_from_original(original_filename: &str) -> String {
     strip_ableton_consolidate_timestamp(original_filename)
+}
+
+const FILENAME_FORBIDDEN: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+
+/// Normalize a user-edited library filename. Spaces and unicode are preserved; path separators are rejected.
+pub fn normalize_library_filename_input(input: &str, fallback_ext: &str) -> AppResult<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidPath(
+            "El nombre del archivo no puede estar vacío".into(),
+        ));
+    }
+    let nfc: String = trimmed.nfc().collect();
+    let mut cleaned = String::with_capacity(nfc.len());
+    for ch in nfc.chars() {
+        if ch.is_control() || FILENAME_FORBIDDEN.contains(&ch) {
+            cleaned.push('_');
+        } else {
+            cleaned.push(ch);
+        }
+    }
+    let cleaned = cleaned.trim_matches(|c: char| c == '.' || c == ' ');
+    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+        return Err(AppError::InvalidPath("Nombre de archivo inválido".into()));
+    }
+
+    let path = Path::new(&cleaned);
+    let actual_ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    let has_known_ext = actual_ext
+        .as_deref()
+        .is_some_and(|e| matches!(e, "wav" | "aif" | "aiff" | "flac"));
+    let mut name = if has_known_ext {
+        cleaned.to_string()
+    } else {
+        let fe = fallback_ext.trim_start_matches('.');
+        if fe.is_empty() {
+            format!("{cleaned}.wav")
+        } else {
+            format!("{cleaned}.{fe}")
+        }
+    };
+
+    if let Some(stem) = Path::new(&name).file_stem().and_then(|s| s.to_str()) {
+        if stem.trim().is_empty() {
+            return Err(AppError::InvalidPath(
+                "El nombre del archivo no puede estar vacío".into(),
+            ));
+        }
+    }
+
+    if !is_supported_audio_filename(&name) {
+        return Err(AppError::InvalidPath(format!(
+            "Extensión no soportada en «{name}». Usa wav, aif, aiff o flac."
+        )));
+    }
+
+    // Windows: no trailing dots/spaces in the final component.
+    while name.ends_with('.') || name.ends_with(' ') {
+        name.pop();
+    }
+    if name.is_empty() {
+        return Err(AppError::InvalidPath("Nombre de archivo inválido".into()));
+    }
+
+    Ok(name)
 }
 
 /// When two different assets clean to the same filename, allocate `name (2).ext`, `name (3).ext`, …
@@ -164,6 +236,14 @@ mod tests {
         assert_eq!(
             strip_ableton_consolidate_timestamp("Percusión Acuática Ñ [2026-08-29 184322].wav"),
             "Percusión Acuática Ñ.wav"
+        );
+    }
+
+    #[test]
+    fn normalize_user_filename_preserves_spaces() {
+        assert_eq!(
+            normalize_library_filename_input("textura agua", "wav").unwrap(),
+            "textura agua.wav"
         );
     }
 

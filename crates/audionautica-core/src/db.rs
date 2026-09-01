@@ -420,6 +420,35 @@ pub fn delete_asset(conn: &Connection, asset_id: &str) -> AppResult<()> {
     Ok(())
 }
 
+pub fn update_asset_metadata(
+    conn: &Connection,
+    asset_id: &str,
+    category: Category,
+    canonical_filename: &str,
+    canonical_path: &str,
+) -> AppResult<()> {
+    let n = conn.execute(
+        "UPDATE audio_assets SET category = ?1, canonical_filename = ?2, canonical_path = ?3 WHERE id = ?4",
+        params![category.as_str(), canonical_filename, canonical_path, asset_id],
+    )?;
+    if n == 0 {
+        return Err(AppError::AssetNotFound(asset_id.to_string()));
+    }
+    Ok(())
+}
+
+pub fn update_asset_storage_relative_path(
+    conn: &Connection,
+    asset_storage_id: &str,
+    relative_path: &str,
+) -> AppResult<()> {
+    conn.execute(
+        "UPDATE asset_storage_locations SET relative_path = ?1 WHERE id = ?2",
+        params![relative_path, asset_storage_id],
+    )?;
+    Ok(())
+}
+
 pub fn find_asset_by_hash(conn: &Connection, hash: &str) -> AppResult<Option<AudioAsset>> {
     conn.query_row(
         "SELECT id, source_type, original_filename, original_path, canonical_filename, canonical_path,

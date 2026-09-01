@@ -251,6 +251,17 @@ fn delete_from_library(
     audionautica_core::delete_from_library(&conn, &asset_id).map_err(map_err)
 }
 
+#[tauri::command]
+fn update_library_asset(
+    state: State<AppState>,
+    asset_id: String,
+    new_category: Option<Category>,
+    new_filename: Option<String>,
+) -> Result<audionautica_core::domain::UpdateLibraryAssetReport, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    audionautica_core::update_library_asset(&conn, &asset_id, new_category, new_filename).map_err(map_err)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -286,6 +297,7 @@ pub fn run() {
             list_library,
             list_projects,
             delete_from_library,
+            update_library_asset,
             reveal_path,
         ])
         .run(tauri::generate_context!())

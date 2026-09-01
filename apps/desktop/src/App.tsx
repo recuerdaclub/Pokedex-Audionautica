@@ -1,4 +1,3 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useState } from "react";
 import { readStoredTheme, THEME_STORAGE_KEY, THEMES, type ThemeId } from "./theme";
 import {
@@ -6,6 +5,7 @@ import {
   abandonSession,
   deleteStorageLocation,
   deleteFromLibrary,
+  updateLibraryAsset,
   endSession,
   formatBpm,
   formatDuration,
@@ -23,9 +23,9 @@ import {
   setSessionBpm,
 } from "./api";
 import { ReviewScreen } from "./ReviewScreen";
+import { LibraryAudioPlayer } from "./LibraryAudioPlayer";
 import {
   CATEGORIES,
-  categoryLabel,
   storageKindLabel,
   type AbletonSetInfo,
   type AppState,
@@ -501,6 +501,26 @@ export default function App() {
                 setBusy(false);
               }
             }}
+            onSave={async (assetId, category, filename) => {
+              setBusy(true);
+              setError(null);
+              try {
+                const asset = assets.find((a) => a.id === assetId);
+                if (!asset) return;
+                const newCategory = category !== asset.category ? category : null;
+                const newFilename = filename !== asset.canonical_filename ? filename : null;
+                if (!newCategory && !newFilename) return;
+                const report = await updateLibraryAsset(assetId, newCategory, newFilename);
+                if (report.errors.length) {
+                  setError(report.errors.join(" · "));
+                }
+                await openLibrary();
+              } catch (e) {
+                setError(String(e));
+              } finally {
+                setBusy(false);
+              }
+            }}
             busy={busy}
           />
         ) : null}
@@ -793,6 +813,7 @@ function LibraryView(props: {
   setFilterCategory: (v: Category | "") => void;
   setFilterProject: (v: string) => void;
   onDelete: (assetId: string) => void;
+  onSave: (assetId: string, category: Category, filename: string) => void;
   busy: boolean;
 }) {
   return (
@@ -849,36 +870,19 @@ function LibraryView(props: {
                   <th>Fecha</th>
                   <th>Duracion</th>
                   <th>Preview</th>
-                  <th></th>
+                  <th className="col-actions">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {props.assets.map((a) => (
-                  <tr key={a.id}>
-                    <td className="path col-file">{a.canonical_filename}</td>
-                    <td>{categoryLabel(a.category)}</td>
-                    <td>{formatBpm(a.source_session_bpm)}</td>
-                    <td className="col-project">{props.projects.find((p) => p.id === a.project_id)?.name ?? "—"}</td>
-                    <td>{a.harvested_at.slice(0, 10)}</td>
-                    <td>{formatDuration(a.duration_seconds)}</td>
-                    <td className="col-preview">
-                      <audio className="library-audio" controls preload="none" src={convertFileSrc(a.canonical_path)} />
-                    </td>
-                    <td className="col-actions">
-                      <button
-                        className="btn danger"
-                        disabled={props.busy}
-                        onClick={() => {
-                          const ok = window.confirm(
-                            `¿Eliminar "${a.canonical_filename}" de la biblioteca?\n\nSe borrarán las copias en Local/Drive/Dropbox.\nEl Consolidate original en Ableton NO se toca.`,
-                          );
-                          if (ok) props.onDelete(a.id);
-                        }}
-                      >
-                        Eliminar
-                      </button>
-                    </td>
-                  </tr>
+                  <LibraryAssetRow
+                    key={a.id}
+                    asset={a}
+                    projectName={props.projects.find((p) => p.id === a.project_id)?.name ?? "—"}
+                    busy={props.busy}
+                    onDelete={() => props.onDelete(a.id)}
+                    onSave={(category, filename) => props.onSave(a.id, category, filename)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -887,5 +891,79 @@ function LibraryView(props: {
         </div>
       </div>
     </section>
+  );
+}
+
+function LibraryAssetRow(props: {
+  asset: AudioAsset;
+  projectName: string;
+  busy: boolean;
+  onDelete: () => void;
+  onSave: (category: Category, filename: string) => void;
+}) {
+  const [filename, setFilename] = useState(props.asset.canonical_filename);
+  const [category, setCategory] = useState<Category>(props.asset.category);
+
+  useEffect(() => {
+    setFilename(props.asset.canonical_filename);
+    setCategory(props.asset.category);
+  }, [props.asset.id, props.asset.canonical_filename, props.asset.category]);
+
+  const dirty =
+    filename.trim() !== props.asset.canonical_filename || category !== props.asset.category;
+
+  return (
+    <tr>
+      <td className="path col-file">
+        <input
+          type="text"
+          className="library-filename-input"
+          value={filename}
+          onChange={(e) => setFilename(e.target.value)}
+          aria-label={`Nombre de ${props.asset.canonical_filename}`}
+        />
+      </td>
+      <td>
+        <select value={category} onChange={(e) => setCategory(e.target.value as Category)}>
+          {CATEGORIES.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>{formatBpm(props.asset.source_session_bpm)}</td>
+      <td className="col-project">{props.projectName}</td>
+      <td>{props.asset.harvested_at.slice(0, 10)}</td>
+      <td>{formatDuration(props.asset.duration_seconds)}</td>
+      <td className="col-preview">
+        <LibraryAudioPlayer src={props.asset.canonical_path} label={props.asset.canonical_filename} />
+      </td>
+      <td className="col-actions">
+        <div className="library-row-actions">
+          <button
+            type="button"
+            className="btn btn-compact"
+            disabled={props.busy || !dirty || filename.trim() === ""}
+            onClick={() => props.onSave(category, filename.trim())}
+          >
+            Guardar
+          </button>
+          <button
+            type="button"
+            className="btn btn-compact danger"
+            disabled={props.busy}
+            onClick={() => {
+              const ok = window.confirm(
+                `¿Eliminar "${props.asset.canonical_filename}" de la biblioteca?\n\nSe borrarán las copias en Local/Drive/Dropbox.\nEl Consolidate original en Ableton NO se toca.`,
+              );
+              if (ok) props.onDelete();
+            }}
+          >
+            Eliminar
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }

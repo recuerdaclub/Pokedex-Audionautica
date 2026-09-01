@@ -34,6 +34,9 @@ pub struct CandidateSelection {
     pub original_path: String,
     pub selected: bool,
     pub category: Category,
+    /// User-edited library filename. When `None` or empty, the automatic name is used.
+    #[serde(default)]
+    pub library_filename_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -519,7 +522,15 @@ fn ingest_selected(
 
         let probe = probe_file(&source);
         let category = sel.category;
-        let base = library_filename_from_original(&filename);
+        let base = match sel
+            .library_filename_override
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            Some(raw) => crate::naming::normalize_library_filename_input(raw, &crate::naming::extension_of(&filename))?,
+            None => library_filename_from_original(&filename),
+        };
         let mut taken = db::list_library_filenames_in_category(conn, year, category)?;
         taken.extend(allocated_filenames.iter().cloned());
         let canonical = resolve_filename_collision(&base, &taken);

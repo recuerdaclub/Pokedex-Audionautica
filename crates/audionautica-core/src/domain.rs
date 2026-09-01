@@ -89,12 +89,14 @@ pub enum Category {
     Bass,
     Voices,
     FieldFx,
+    Glitch,
+    Atmospheres,
     #[default]
     Other,
 }
 
 impl Category {
-    pub const ALL: [Category; 8] = [
+    pub const ALL: [Category; 10] = [
         Category::Harmonies,
         Category::Rhythms,
         Category::Textures,
@@ -102,6 +104,8 @@ impl Category {
         Category::Bass,
         Category::Voices,
         Category::FieldFx,
+        Category::Glitch,
+        Category::Atmospheres,
         Category::Other,
     ];
 
@@ -114,6 +118,8 @@ impl Category {
             Category::Bass => "BASS",
             Category::Voices => "VOICES",
             Category::FieldFx => "FIELD_FX",
+            Category::Glitch => "GLITCH",
+            Category::Atmospheres => "ATMOSPHERES",
             Category::Other => "OTHER",
         }
     }
@@ -127,6 +133,8 @@ impl Category {
             "BASS" => Category::Bass,
             "VOICES" => Category::Voices,
             "FIELD_FX" => Category::FieldFx,
+            "GLITCH" => Category::Glitch,
+            "ATMOSPHERES" => Category::Atmospheres,
             _ => Category::Other,
         }
     }
@@ -141,6 +149,8 @@ impl Category {
             Category::Bass => "Bajos",
             Category::Voices => "Voces",
             Category::FieldFx => "Field / FX",
+            Category::Glitch => "Glitch",
+            Category::Atmospheres => "Atmósferas",
             Category::Other => "Otros",
         }
     }
@@ -155,6 +165,8 @@ impl Category {
             Category::Bass => "Bajos",
             Category::Voices => "Voces",
             Category::FieldFx => "Field_FX",
+            Category::Glitch => "Glitch",
+            Category::Atmospheres => "Atmosferas",
             Category::Other => "Otros",
         }
     }
@@ -169,6 +181,8 @@ impl Category {
             Category::Bass => "BASS",
             Category::Voices => "VOICE",
             Category::FieldFx => "FIELDFX",
+            Category::Glitch => "GLITCH",
+            Category::Atmospheres => "ATMOSPHERES",
             Category::Other => "OTHER",
         }
     }
@@ -465,5 +479,29 @@ pub struct DeleteFromLibraryReport {
     pub removed_from_db: bool,
     pub source_preserved: bool,
     pub locations: Vec<StorageDeleteResult>,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageRelocateResult {
+    pub storage_location_id: String,
+    pub kind: StorageKind,
+    pub label: String,
+    pub old_path: String,
+    pub new_path: String,
+    pub moved: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateLibraryAssetReport {
+    pub asset_id: AssetId,
+    pub old_filename: String,
+    pub new_filename: String,
+    pub old_category: Category,
+    pub new_category: Category,
+    pub old_relative_path: String,
+    pub new_relative_path: String,
+    pub locations: Vec<StorageRelocateResult>,
     pub errors: Vec<String>,
 }

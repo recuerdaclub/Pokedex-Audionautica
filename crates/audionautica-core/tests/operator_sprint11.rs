@@ -57,6 +57,7 @@ fn sel(path: &Path, category: Category) -> CandidateSelection {
         original_path: path.to_string_lossy().to_string(),
         selected: true,
         category,
+        library_filename_override: None,
     }
 }
 
