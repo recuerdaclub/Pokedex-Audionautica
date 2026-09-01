@@ -94,3 +94,39 @@ fn imports_new_loops_from_drive_mirror_to_local() {
     assert_eq!(second.local_restored, 0);
     assert_eq!(second.already_present, 1);
 }
+
+#[test]
+fn restores_to_current_local_root_when_canonical_path_is_stale() {
+    let mut h = Harness::new();
+    let local_v1 = h.add_local();
+    let drive = h.add_drive();
+    let wav = h.wav_in_drive(&drive, "loop propio.wav", 77);
+
+    let first = sync_mirrors_to_local(&h.conn).unwrap();
+    assert_eq!(first.imported, 1);
+
+    let assets = list_library(&h.conn, &LibraryFilter::default()).unwrap();
+    assert_eq!(assets.len(), 1);
+    let stale_path = PathBuf::from(&assets[0].canonical_path);
+    assert!(stale_path.is_file());
+
+    let local_v2_root = h.root.join("LocalV2");
+    fs::create_dir_all(&local_v2_root).unwrap();
+    let mut local_v2 = local_v1.clone();
+    local_v2.id = local_v1.id.clone();
+    local_v2.root_path = local_v2_root.to_string_lossy().to_string();
+    db::upsert_storage_location(&h.conn, &local_v2).unwrap();
+    fs::remove_file(&stale_path).unwrap();
+
+    let report = sync_mirrors_to_local(&h.conn).unwrap();
+    assert_eq!(report.imported, 0);
+    assert_eq!(report.already_present, 0);
+    assert_eq!(report.local_restored, 1);
+
+    let expected = local_v2_root.join(library_relative(2026, Category::Textures, "loop propio.wav"));
+    assert!(expected.is_file());
+
+    let assets = list_library(&h.conn, &LibraryFilter::default()).unwrap();
+    assert_eq!(assets[0].canonical_path, expected.to_string_lossy());
+    assert!(Path::new(&wav).is_file());
+}

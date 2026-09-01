@@ -1107,33 +1107,32 @@ audio {
   line-height: 1.35;
 }
 
-.ableton-places-card h2 {
-  margin-bottom: 8px;
+.mirror-sync-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
-.ableton-places-path {
-  margin: 10px 0;
-  word-break: break-all;
+.mirror-sync-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.ableton-places-actions {
-  margin-bottom: 10px;
-}
-
-.ableton-places-tips {
+.mirror-sync-copy {
   margin: 0;
-  padding-left: 1.2rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.mirror-sync-btn {
+  flex-shrink: 0;
+}
+
+.mirror-sync-result {
+  margin: 10px 0 0;
   font-size: 13px;
-  line-height: 1.45;
-}
-
-.ableton-places-tips li + li {
-  margin-top: 8px;
-}
-
-.ableton-drive-note {
-  margin: 12px 0 0;
-  font-size: 12px;
 }
 
 .ableton-post-harvest-tip {

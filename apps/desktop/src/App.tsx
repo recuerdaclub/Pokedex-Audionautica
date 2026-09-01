@@ -406,29 +406,6 @@ export default function App() {
                 setError(String(e));
               }
             }}
-            onOpenLocalLoops={async () => {
-              if (!local) return;
-              try {
-                await revealPath(loopsFolderPath(local.root_path));
-              } catch (e) {
-                setError(String(e));
-              }
-            }}
-            onOpenDriveLoops={
-              state?.storage_locations.find((l) => l.kind === "GOOGLE_DRIVE_FOLDER" && l.enabled)
-                ? async () => {
-                    const driveLoc = state?.storage_locations.find(
-                      (l) => l.kind === "GOOGLE_DRIVE_FOLDER" && l.enabled,
-                    );
-                    if (!driveLoc) return;
-                    try {
-                      await revealPath(loopsFolderPath(driveLoc.root_path));
-                    } catch (e) {
-                      setError(String(e));
-                    }
-                  }
-                : undefined
-            }
             onSyncMirrors={() => void runMirrorSync(state, { silent: false })}
             mirrorImportReport={mirrorImportReport}
           />
@@ -618,12 +595,6 @@ export default function App() {
   );
 }
 
-function loopsFolderPath(root: string): string {
-  const trimmed = root.replace(/[/\\]+$/, "");
-  const sep = trimmed.includes("\\") ? "\\" : "/";
-  return `${trimmed}${sep}Loops`;
-}
-
 function Home(props: {
   alsPath: string;
   state: AppState | null;
@@ -634,8 +605,6 @@ function Home(props: {
   onReviewHistorical: () => void;
   onPickStorage: (kind: StorageKind, label: string) => void;
   onClearStorage: (id: string) => void;
-  onOpenLocalLoops: () => void;
-  onOpenDriveLoops?: () => void;
   onSyncMirrors: () => void;
 }) {
   const locations = props.state?.storage_locations ?? [];
@@ -722,18 +691,20 @@ function Home(props: {
           />
           {local && (drive || dropbox) ? (
             <div className="mirror-sync-block">
-              <p className="muted">
-                Al abrir la app se revisa Drive/Dropbox y solo se copian loops que falten en tu
-                biblioteca local. También puedes forzar una revisión manual aquí.
-              </p>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={props.busy}
-                onClick={props.onSyncMirrors}
-              >
-                Importar ahora desde Drive/Dropbox
-              </button>
+              <div className="mirror-sync-row">
+                <p className="muted mirror-sync-copy">
+                  Al abrir la app se revisa Drive/Dropbox y solo se copian loops que falten en tu
+                  biblioteca local.
+                </p>
+                <button
+                  type="button"
+                  className="btn primary mirror-sync-btn"
+                  disabled={props.busy}
+                  onClick={props.onSyncMirrors}
+                >
+                  Sincronizar Pokedex
+                </button>
+              </div>
               {props.mirrorImportReport ? (
                 <p className="mirror-sync-result">
                   Importados: {props.mirrorImportReport.imported} · Restaurados en local:{" "}
@@ -747,14 +718,6 @@ function Home(props: {
             </div>
           ) : null}
         </div>
-        {local ? (
-          <AbletonPlacesCard
-            localRoot={local.root_path}
-            driveRoot={drive?.root_path}
-            onOpenLocalLoops={() => props.onOpenLocalLoops()}
-            onOpenDriveLoops={props.onOpenDriveLoops}
-          />
-        ) : null}
         </div>
       </div>
     </section>
@@ -786,45 +749,6 @@ function StorageRow(props: {
         ) : null}
       </div>
       {props.hint ? <p className="muted storage-hint">{props.hint}</p> : null}
-    </div>
-  );
-}
-
-function AbletonPlacesCard(props: {
-  localRoot: string;
-  driveRoot?: string;
-  onOpenLocalLoops: () => void;
-  onOpenDriveLoops?: () => void;
-}) {
-  const localLoops = loopsFolderPath(props.localRoot);
-  return (
-    <div className="card ableton-places-card">
-      <h2>Ableton Places</h2>
-      <p>
-        Agrega la carpeta <b>Loops local</b> en Places de Live. Ahí los loops farmeados aparecen al instante, sin
-        quitar y volver a agregar la carpeta.
-      </p>
-      <p className="path ableton-places-path">{localLoops}</p>
-      <div className="row ableton-places-actions">
-        <button type="button" className="btn primary" onClick={props.onOpenLocalLoops}>
-          Abrir Loops local
-        </button>
-      </div>
-      <ul className="ableton-places-tips muted">
-        <li>
-          <b>No uses Drive en Ableton</b> si puedes evitarlo: Live no refresca bien carpetas en la nube.
-        </li>
-        <li>
-          Si compartes biblioteca por Drive y no ves loops de otra persona: en Google Drive marca la carpeta{" "}
-          <b>Disponible sin conexión</b>, espera la descarga, y en Live colapsa/expande Places (limitación de
-          Ableton, no de Audionautica).
-        </li>
-      </ul>
-      {props.driveRoot && props.onOpenDriveLoops ? (
-        <p className="muted ableton-drive-note">
-          Espejo Drive: <span className="path">{loopsFolderPath(props.driveRoot)}</span>
-        </p>
-      ) : null}
     </div>
   );
 }

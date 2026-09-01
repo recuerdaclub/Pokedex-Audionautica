@@ -626,6 +626,17 @@ fn collect_mirror_library_files(mirror_root: &Path) -> AppResult<Vec<MirrorLibra
     Ok(out)
 }
 
+fn current_local_dest(
+    local: &crate::domain::StorageLocation,
+    asset: &AudioAsset,
+) -> PathBuf {
+    Path::new(&local.root_path).join(library_relative(
+        asset.year,
+        asset.category,
+        &asset.canonical_filename,
+    ))
+}
+
 fn handle_existing_mirror_asset(
     conn: &Connection,
     local: &crate::domain::StorageLocation,
@@ -634,21 +645,44 @@ fn handle_existing_mirror_asset(
     entry: &MirrorLibraryEntry,
     report: &mut MirrorImportReport,
 ) -> AppResult<()> {
-    let local_dest = PathBuf::from(&existing.canonical_path);
+    let local_dest = current_local_dest(local, existing);
     let relative = mirror_relative_key(&entry.relative);
     let now = Utc::now();
+    let stale_path = PathBuf::from(&existing.canonical_path);
+    let path_changed = stale_path != local_dest;
 
     if local_dest.is_file() {
         report.already_present += 1;
+        if path_changed {
+            db::update_asset_metadata(
+                conn,
+                &existing.id,
+                existing.category,
+                &existing.canonical_filename,
+                &local_dest.to_string_lossy(),
+            )?;
+        }
     } else {
         if let Some(parent) = local_dest.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| AppError::from_io(e, &parent.display().to_string()))?;
         }
-        match copy_verified(&entry.path, &local_dest) {
+        let copy_source = if stale_path.is_file() {
+            &stale_path
+        } else {
+            &entry.path
+        };
+        match copy_verified(copy_source, &local_dest) {
             Ok(()) => {
                 report.local_restored += 1;
                 info!(asset = %existing.id, path = %local_dest.display(), "restored local copy from mirror");
+                db::update_asset_metadata(
+                    conn,
+                    &existing.id,
+                    existing.category,
+                    &existing.canonical_filename,
+                    &local_dest.to_string_lossy(),
+                )?;
             }
             Err(e) => {
                 report.errors.push(format!(
