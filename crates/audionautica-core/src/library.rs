@@ -691,6 +691,7 @@ fn handle_existing_mirror_asset(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn import_new_mirror_asset(
     conn: &Connection,
     local: &crate::domain::StorageLocation,
