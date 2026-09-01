@@ -34,6 +34,7 @@ pub enum IngestType {
     #[default]
     SessionHarvest,
     HistoricalImport,
+    MirrorImport,
 }
 
 impl IngestType {
@@ -41,12 +42,14 @@ impl IngestType {
         match self {
             IngestType::SessionHarvest => "SESSION_HARVEST",
             IngestType::HistoricalImport => "HISTORICAL_IMPORT",
+            IngestType::MirrorImport => "MIRROR_IMPORT",
         }
     }
 
     pub fn parse(value: &str) -> Self {
         match value {
             "HISTORICAL_IMPORT" => IngestType::HistoricalImport,
+            "MIRROR_IMPORT" => IngestType::MirrorImport,
             _ => IngestType::SessionHarvest,
         }
     }
@@ -169,6 +172,12 @@ impl Category {
             Category::Atmospheres => "Atmosferas",
             Category::Other => "Otros",
         }
+    }
+
+    pub fn from_folder_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|cat| cat.folder_name() == name)
     }
 
     /// Token used in canonical filenames.
@@ -503,5 +512,14 @@ pub struct UpdateLibraryAssetReport {
     pub old_relative_path: String,
     pub new_relative_path: String,
     pub locations: Vec<StorageRelocateResult>,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MirrorImportReport {
+    pub imported: u32,
+    pub local_restored: u32,
+    pub already_present: u32,
+    pub skipped: u32,
     pub errors: Vec<String>,
 }

@@ -1101,6 +1101,46 @@ audio {
   white-space: nowrap;
 }
 
+.storage-hint {
+  margin: 4px 0 0 188px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ableton-places-card h2 {
+  margin-bottom: 8px;
+}
+
+.ableton-places-path {
+  margin: 10px 0;
+  word-break: break-all;
+}
+
+.ableton-places-actions {
+  margin-bottom: 10px;
+}
+
+.ableton-places-tips {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ableton-places-tips li + li {
+  margin-top: 8px;
+}
+
+.ableton-drive-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+
+.ableton-post-harvest-tip {
+  margin-top: 10px;
+  line-height: 1.45;
+}
+
 .review-item-origin {
   font-size: 12px;
   margin-top: 2px;

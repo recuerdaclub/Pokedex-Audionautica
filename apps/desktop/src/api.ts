@@ -15,6 +15,7 @@ import type {
   Session,
   StorageKind,
   UpdateLibraryAssetReport,
+  MirrorImportReport,
 } from "./types";
 
 export async function getAppState(): Promise<AppState> {
@@ -106,6 +107,10 @@ export async function updateLibraryAsset(
     newCategory,
     newFilename,
   });
+}
+
+export async function syncMirrorsToLocal(): Promise<MirrorImportReport> {
+  return invoke("sync_mirrors_to_local");
 }
 
 export async function listLibrary(filter: {

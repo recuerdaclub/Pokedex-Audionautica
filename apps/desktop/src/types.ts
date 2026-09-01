@@ -115,7 +115,7 @@ export interface HarvestReport {
   errors: string[];
 }
 
-export type IngestType = "SESSION_HARVEST" | "HISTORICAL_IMPORT";
+export type IngestType = "SESSION_HARVEST" | "HISTORICAL_IMPORT" | "MIRROR_IMPORT";
 
 export interface HistoricalConsolidate {
   original_path: string;
@@ -175,6 +175,14 @@ export interface UpdateLibraryAssetReport {
     moved: boolean;
     error: string | null;
   }[];
+  errors: string[];
+}
+
+export interface MirrorImportReport {
+  imported: number;
+  local_restored: number;
+  already_present: number;
+  skipped: number;
   errors: string[];
 }
 

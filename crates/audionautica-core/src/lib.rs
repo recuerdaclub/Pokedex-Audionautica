@@ -22,5 +22,5 @@ pub use harvest::{
     CandidateSelection,
     HarvestReport, LibraryFilter,
 };
-pub use library::{delete_from_library, update_library_asset};
-pub use domain::{DeleteFromLibraryReport, UpdateLibraryAssetReport};
+pub use library::{delete_from_library, sync_mirrors_to_local, update_library_asset};
+pub use domain::{DeleteFromLibraryReport, MirrorImportReport, UpdateLibraryAssetReport};

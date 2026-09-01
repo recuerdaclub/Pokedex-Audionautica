@@ -464,6 +464,30 @@ pub fn find_asset_by_hash(conn: &Connection, hash: &str) -> AppResult<Option<Aud
     .map_err(Into::into)
 }
 
+pub fn find_asset_by_mirror_relative(
+    conn: &Connection,
+    storage_location_id: &str,
+    relative_path: &str,
+) -> AppResult<Option<AudioAsset>> {
+    conn.query_row(
+        "SELECT a.id, a.source_type, a.original_filename, a.original_path, a.canonical_filename,
+                a.canonical_path, a.project_id, a.session_id, a.category, a.year, a.source_session_bpm,
+                a.detected_bpm, a.created_at, a.harvested_at, a.source_modified_at, a.duration_seconds,
+                a.sample_rate, a.channels, a.size_bytes, a.content_hash, a.metadata_json, a.participant,
+                a.sync_group, a.timeline_offset_seconds, a.ingest_type
+         FROM audio_assets a
+         JOIN asset_storage_locations asl ON asl.asset_id = a.id
+         WHERE asl.storage_location_id = ?1
+           AND REPLACE(asl.relative_path, char(92), '/') = ?2
+           AND asl.copy_status = 'COPIED'
+         LIMIT 1",
+        params![storage_location_id, relative_path],
+        row_asset,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 fn row_asset(r: &rusqlite::Row<'_>) -> rusqlite::Result<AudioAsset> {
     let meta: String = r.get(20)?;
     Ok(AudioAsset {

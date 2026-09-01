@@ -1,16 +1,26 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
+use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use tracing::info;
 
+use crate::audio::probe_file;
 use crate::db;
 use crate::domain::{
-    Category, CopyStatus, DeleteFromLibraryReport, StorageDeleteResult, StorageKind,
-    StorageRelocateResult, UpdateLibraryAssetReport,
+    AssetStorageLocation, AudioAsset, Category, CopyStatus, DeleteFromLibraryReport, IngestType,
+    MirrorImportReport, Project, Session, SessionSnapshot, SessionStatus, SourceType,
+    StorageDeleteResult, StorageKind, StorageRelocateResult, UpdateLibraryAssetReport, new_id,
 };
 use crate::error::{AppError, AppResult};
-use crate::naming::{extension_of, normalize_library_filename_input, resolve_filename_collision};
+use crate::fsutil::copy::copy_verified;
+use crate::hash::hash_file;
+use crate::naming::{
+    extension_of, is_supported_audio_filename, normalize_library_filename_input,
+    resolve_filename_collision,
+};
 use crate::storage::{ensure_year_taxonomy, library_relative};
 
 pub fn delete_from_library(conn: &Connection, asset_id: &str) -> AppResult<DeleteFromLibraryReport> {
@@ -386,4 +396,399 @@ fn is_same_path(a: &Path, b: &Path) -> bool {
 
 fn normalize_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/").to_lowercase()
+}
+
+const SHARED_PROJECT_ROOT: &str = "__audionautica_mirror_import__";
+const SHARED_PROJECT_NAME: &str = "Biblioteca compartida";
+
+struct MirrorLibraryEntry {
+    path: PathBuf,
+    relative: PathBuf,
+    year: i32,
+    category: Category,
+    filename: String,
+}
+
+/// Import loops from configured Drive/Dropbox mirrors into the local library and SQLite.
+/// Skips files already present locally; only hashes files not yet tracked on the mirror.
+pub fn sync_mirrors_to_local(conn: &Connection) -> AppResult<MirrorImportReport> {
+    let mut report = MirrorImportReport::default();
+
+    let locations = db::list_storage_locations(conn)?;
+    let local = match locations
+        .iter()
+        .find(|l| l.kind == StorageKind::Local && l.enabled)
+    {
+        Some(local) => local,
+        None => return Ok(report),
+    };
+    let mirrors: Vec<_> = locations
+        .iter()
+        .filter(|l| l.enabled && l.kind != StorageKind::Local)
+        .collect();
+    if mirrors.is_empty() {
+        return Ok(report);
+    }
+
+    let mut import_ctx: Option<(Project, Session)> = None;
+    let mut processed_hashes = HashSet::new();
+
+    for mirror in mirrors {
+        let entries = match collect_mirror_library_files(Path::new(&mirror.root_path)) {
+            Ok(entries) => entries,
+            Err(e) => {
+                report.errors.push(format!("{}: {e}", mirror.label));
+                continue;
+            }
+        };
+
+        for entry in entries {
+            let relative = mirror_relative_key(&entry.relative);
+
+            if let Some(existing) =
+                db::find_asset_by_mirror_relative(conn, &mirror.id, &relative)?
+            {
+                if !processed_hashes.insert(existing.content_hash.clone()) {
+                    continue;
+                }
+                handle_existing_mirror_asset(
+                    conn,
+                    local,
+                    mirror,
+                    &existing,
+                    &entry,
+                    &mut report,
+                )?;
+                continue;
+            }
+
+            let content_hash = match hash_file(&entry.path) {
+                Ok(hash) => hash,
+                Err(e) => {
+                    report.skipped += 1;
+                    report.errors.push(format!("{}: {e}", entry.filename));
+                    continue;
+                }
+            };
+
+            if !processed_hashes.insert(content_hash.clone()) {
+                continue;
+            }
+
+            if let Some(existing) = db::find_asset_by_hash(conn, &content_hash)? {
+                handle_existing_mirror_asset(
+                    conn,
+                    local,
+                    mirror,
+                    &existing,
+                    &entry,
+                    &mut report,
+                )?;
+                continue;
+            }
+
+            if import_ctx.is_none() {
+                import_ctx = Some(ensure_mirror_import_context(conn)?);
+            }
+            let (project, session) = import_ctx.as_ref().expect("mirror import context");
+            import_new_mirror_asset(
+                conn,
+                local,
+                mirror,
+                project,
+                session,
+                &entry,
+                &content_hash,
+                &mut report,
+            )?;
+        }
+    }
+
+    if report.imported > 0 || report.local_restored > 0 {
+        info!(
+            imported = report.imported,
+            restored = report.local_restored,
+            present = report.already_present,
+            "mirror import finished"
+        );
+    }
+    Ok(report)
+}
+
+fn mirror_relative_key(relative: &Path) -> String {
+    relative.to_string_lossy().replace('\\', "/")
+}
+
+fn ensure_mirror_import_context(conn: &Connection) -> AppResult<(Project, Session)> {
+    let now = Utc::now();
+    let project = match db::find_project_by_root(conn, SHARED_PROJECT_ROOT)? {
+        Some(existing) => existing,
+        None => {
+            let project = Project {
+                id: new_id(),
+                name: SHARED_PROJECT_NAME.into(),
+                ableton_set_path: String::new(),
+                project_root: SHARED_PROJECT_ROOT.into(),
+                created_at: now,
+                updated_at: now,
+            };
+            db::upsert_project(conn, &project)?;
+            project
+        }
+    };
+
+    let session = Session {
+        id: new_id(),
+        project_id: project.id.clone(),
+        project_name: project.name.clone(),
+        ableton_set_path: String::new(),
+        project_root: project.project_root.clone(),
+        consolidate_dir: String::new(),
+        start_time: now,
+        end_time: Some(now),
+        source_session_bpm: None,
+        snapshot: SessionSnapshot::default(),
+        status: SessionStatus::Archived,
+    };
+    db::insert_session(conn, &session)?;
+    Ok((project, session))
+}
+
+fn collect_mirror_library_files(mirror_root: &Path) -> AppResult<Vec<MirrorLibraryEntry>> {
+    let loops = mirror_root.join("Loops");
+    if !loops.exists() {
+        return Ok(Vec::new());
+    }
+    if !loops.is_dir() {
+        return Err(AppError::InvalidPath(format!(
+            "Se esperaba una carpeta Loops en {}",
+            mirror_root.display()
+        )));
+    }
+
+    let mut out = Vec::new();
+    for year_entry in fs::read_dir(&loops)
+        .map_err(|e| AppError::from_io(e, &loops.display().to_string()))?
+    {
+        let year_entry = year_entry.map_err(|e| AppError::from_io(e, &loops.display().to_string()))?;
+        if !year_entry.file_type().map_err(|e| AppError::from_io(e, "Loops"))?.is_dir() {
+            continue;
+        }
+        let year = match year_entry.file_name().to_string_lossy().parse::<i32>() {
+            Ok(year) if (1900..3000).contains(&year) => year,
+            _ => continue,
+        };
+        let year_path = year_entry.path();
+        for category_entry in fs::read_dir(&year_path)
+            .map_err(|e| AppError::from_io(e, &year_path.display().to_string()))?
+        {
+            let category_entry = category_entry
+                .map_err(|e| AppError::from_io(e, &year_path.display().to_string()))?;
+            if !category_entry
+                .file_type()
+                .map_err(|e| AppError::from_io(e, &year_path.display().to_string()))?
+                .is_dir()
+            {
+                continue;
+            }
+            let category = match Category::from_folder_name(&category_entry.file_name().to_string_lossy()) {
+                Some(category) => category,
+                None => continue,
+            };
+            let category_path = category_entry.path();
+            for file_entry in fs::read_dir(&category_path)
+                .map_err(|e| AppError::from_io(e, &category_path.display().to_string()))?
+            {
+                let file_entry = file_entry
+                    .map_err(|e| AppError::from_io(e, &category_path.display().to_string()))?;
+                if !file_entry
+                    .file_type()
+                    .map_err(|e| AppError::from_io(e, &category_path.display().to_string()))?
+                    .is_file()
+                {
+                    continue;
+                }
+                let filename = file_entry.file_name().to_string_lossy().to_string();
+                if !is_supported_audio_filename(&filename) {
+                    continue;
+                }
+                let relative = library_relative(year, category, &filename);
+                out.push(MirrorLibraryEntry {
+                    path: file_entry.path(),
+                    relative,
+                    year,
+                    category,
+                    filename,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn handle_existing_mirror_asset(
+    conn: &Connection,
+    local: &crate::domain::StorageLocation,
+    mirror: &crate::domain::StorageLocation,
+    existing: &AudioAsset,
+    entry: &MirrorLibraryEntry,
+    report: &mut MirrorImportReport,
+) -> AppResult<()> {
+    let local_dest = PathBuf::from(&existing.canonical_path);
+    let relative = mirror_relative_key(&entry.relative);
+    let now = Utc::now();
+
+    if local_dest.is_file() {
+        report.already_present += 1;
+    } else {
+        if let Some(parent) = local_dest.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| AppError::from_io(e, &parent.display().to_string()))?;
+        }
+        match copy_verified(&entry.path, &local_dest) {
+            Ok(()) => {
+                report.local_restored += 1;
+                info!(asset = %existing.id, path = %local_dest.display(), "restored local copy from mirror");
+            }
+            Err(e) => {
+                report.errors.push(format!(
+                    "No se pudo restaurar {} en local: {e}",
+                    existing.canonical_filename
+                ));
+            }
+        }
+    }
+
+    if local_dest.is_file() {
+        db::upsert_asset_storage(
+            conn,
+            &AssetStorageLocation {
+                id: new_id(),
+                asset_id: existing.id.clone(),
+                storage_location_id: local.id.clone(),
+                relative_path: library_relative(existing.year, existing.category, &existing.canonical_filename)
+                    .to_string_lossy()
+                    .to_string(),
+                copy_status: CopyStatus::Copied,
+                error_message: None,
+                copied_at: Some(now),
+            },
+        )?;
+    }
+
+    db::upsert_asset_storage(
+        conn,
+        &AssetStorageLocation {
+            id: new_id(),
+            asset_id: existing.id.clone(),
+            storage_location_id: mirror.id.clone(),
+            relative_path: relative,
+            copy_status: CopyStatus::Copied,
+            error_message: None,
+            copied_at: Some(now),
+        },
+    )?;
+    Ok(())
+}
+
+fn import_new_mirror_asset(
+    conn: &Connection,
+    local: &crate::domain::StorageLocation,
+    mirror: &crate::domain::StorageLocation,
+    project: &Project,
+    session: &Session,
+    entry: &MirrorLibraryEntry,
+    content_hash: &str,
+    report: &mut MirrorImportReport,
+) -> AppResult<()> {
+    let taken = db::list_library_filenames_in_category(conn, entry.year, entry.category)?;
+    let canonical = resolve_filename_collision(&entry.filename, &taken);
+    let relative = library_relative(entry.year, entry.category, &canonical);
+    let local_path = Path::new(&local.root_path).join(&relative);
+    let now = Utc::now();
+
+    ensure_year_taxonomy(Path::new(&local.root_path), entry.year)?;
+    if let Some(parent) = local_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| AppError::from_io(e, &parent.display().to_string()))?;
+    }
+
+    if let Err(e) = copy_verified(&entry.path, &local_path) {
+        report.errors.push(format!(
+            "No se pudo copiar {} a la biblioteca local: {e}",
+            entry.filename
+        ));
+        return Ok(());
+    }
+
+    let probe = probe_file(&entry.path);
+    let source_meta = fs::metadata(&entry.path).ok();
+    let size_bytes = source_meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let source_modified_at = source_meta.and_then(|m| {
+        m.modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .and_then(|d| DateTime::from_timestamp_millis(d.as_millis() as i64))
+    });
+
+    let asset = AudioAsset {
+        id: new_id(),
+        source_type: SourceType::CommunityUpload,
+        ingest_type: IngestType::MirrorImport,
+        original_filename: entry.filename.clone(),
+        original_path: entry.path.to_string_lossy().to_string(),
+        canonical_filename: canonical.clone(),
+        canonical_path: local_path.to_string_lossy().to_string(),
+        project_id: project.id.clone(),
+        session_id: session.id.clone(),
+        category: entry.category,
+        year: entry.year,
+        source_session_bpm: None,
+        detected_bpm: None,
+        created_at: source_modified_at.unwrap_or(now),
+        harvested_at: now,
+        source_modified_at,
+        duration_seconds: probe.duration_seconds,
+        sample_rate: probe.sample_rate,
+        channels: probe.channels,
+        size_bytes,
+        content_hash: content_hash.to_string(),
+        metadata: serde_json::json!({
+            "mirror_source": mirror.label,
+            "ingest_type": IngestType::MirrorImport.as_str(),
+        }),
+        participant: None,
+        sync_group: None,
+        timeline_offset_seconds: None,
+    };
+
+    db::insert_asset(conn, &asset)?;
+    let relative_str = mirror_relative_key(&relative);
+    db::insert_asset_storage(
+        conn,
+        &AssetStorageLocation {
+            id: new_id(),
+            asset_id: asset.id.clone(),
+            storage_location_id: local.id.clone(),
+            relative_path: relative_str.clone(),
+            copy_status: CopyStatus::Copied,
+            error_message: None,
+            copied_at: Some(now),
+        },
+    )?;
+    db::upsert_asset_storage(
+        conn,
+        &AssetStorageLocation {
+            id: new_id(),
+            asset_id: asset.id.clone(),
+            storage_location_id: mirror.id.clone(),
+            relative_path: relative_str,
+            copy_status: CopyStatus::Copied,
+            error_message: None,
+            copied_at: Some(now),
+        },
+    )?;
+    report.imported += 1;
+    info!(asset = %asset.id, file = %canonical, "imported loop from mirror");
+    Ok(())
 }

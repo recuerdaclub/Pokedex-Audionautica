@@ -262,6 +262,14 @@ fn update_library_asset(
     audionautica_core::update_library_asset(&conn, &asset_id, new_category, new_filename).map_err(map_err)
 }
 
+#[tauri::command]
+fn sync_mirrors_to_local(
+    state: State<AppState>,
+) -> Result<audionautica_core::domain::MirrorImportReport, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    audionautica_core::sync_mirrors_to_local(&conn).map_err(map_err)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -298,6 +306,7 @@ pub fn run() {
             list_projects,
             delete_from_library,
             update_library_asset,
+            sync_mirrors_to_local,
             reveal_path,
         ])
         .run(tauri::generate_context!())

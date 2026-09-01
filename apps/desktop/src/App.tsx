@@ -21,6 +21,7 @@ import {
   saveStorageLocation,
   scanHistoricalConsolidates,
   setSessionBpm,
+  syncMirrorsToLocal,
 } from "./api";
 import { ReviewScreen } from "./ReviewScreen";
 import { LibraryAudioPlayer } from "./LibraryAudioPlayer";
@@ -35,6 +36,7 @@ import {
   type HarvestCandidate,
   type HarvestReport,
   type HistoricalConsolidate,
+  type MirrorImportReport,
   type Project,
   type ProjectLibraryStatus,
   type StorageKind,
@@ -47,6 +49,7 @@ export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mirrorImportReport, setMirrorImportReport] = useState<MirrorImportReport | null>(null);
 
   const [alsPath, setAlsPath] = useState("");
   const [, setInfo] = useState<AbletonSetInfo | null>(null);
@@ -95,10 +98,38 @@ export default function App() {
     }
   }
 
+  async function runMirrorSync(next: AppState | null, opts?: { silent?: boolean }) {
+    const local = next?.storage_locations.find((l) => l.kind === "LOCAL" && l.enabled);
+    const mirror = next?.storage_locations.find((l) => l.enabled && l.kind !== "LOCAL");
+    if (!local || !mirror) {
+      if (!opts?.silent) {
+        setError(
+          "Configura biblioteca local y Google Drive o Dropbox para importar loops compartidos.",
+        );
+      }
+      return null;
+    }
+    try {
+      const report = await syncMirrorsToLocal();
+      if (
+        report.imported > 0 ||
+        report.local_restored > 0 ||
+        (!opts?.silent && report.errors.length > 0)
+      ) {
+        setMirrorImportReport(report);
+      }
+      return report;
+    } catch (e) {
+      if (!opts?.silent) setError(String(e));
+      return null;
+    }
+  }
+
   async function refresh() {
     try {
       const next = await getAppState();
       setState(next);
+      void runMirrorSync(next, { silent: true });
       if (next.last_als_path && !alsPath) {
         setAlsPath(next.last_als_path);
         try {
@@ -375,6 +406,31 @@ export default function App() {
                 setError(String(e));
               }
             }}
+            onOpenLocalLoops={async () => {
+              if (!local) return;
+              try {
+                await revealPath(loopsFolderPath(local.root_path));
+              } catch (e) {
+                setError(String(e));
+              }
+            }}
+            onOpenDriveLoops={
+              state?.storage_locations.find((l) => l.kind === "GOOGLE_DRIVE_FOLDER" && l.enabled)
+                ? async () => {
+                    const driveLoc = state?.storage_locations.find(
+                      (l) => l.kind === "GOOGLE_DRIVE_FOLDER" && l.enabled,
+                    );
+                    if (!driveLoc) return;
+                    try {
+                      await revealPath(loopsFolderPath(driveLoc.root_path));
+                    } catch (e) {
+                      setError(String(e));
+                    }
+                  }
+                : undefined
+            }
+            onSyncMirrors={() => void runMirrorSync(state, { silent: false })}
+            mirrorImportReport={mirrorImportReport}
           />
         ) : null}
         {screen === "historical" ? (
@@ -562,15 +618,25 @@ export default function App() {
   );
 }
 
+function loopsFolderPath(root: string): string {
+  const trimmed = root.replace(/[/\\]+$/, "");
+  const sep = trimmed.includes("\\") ? "\\" : "/";
+  return `${trimmed}${sep}Loops`;
+}
+
 function Home(props: {
   alsPath: string;
   state: AppState | null;
   libraryStatus: ProjectLibraryStatus | null;
   busy: boolean;
+  mirrorImportReport: MirrorImportReport | null;
   onChooseAls: () => void;
   onReviewHistorical: () => void;
   onPickStorage: (kind: StorageKind, label: string) => void;
   onClearStorage: (id: string) => void;
+  onOpenLocalLoops: () => void;
+  onOpenDriveLoops?: () => void;
+  onSyncMirrors: () => void;
 }) {
   const locations = props.state?.storage_locations ?? [];
   const local = locations.find((l) => l.kind === "LOCAL" && l.enabled);
@@ -636,22 +702,59 @@ function Home(props: {
           <StorageRow
             kind="LOCAL"
             location={local}
+            hint="Copia canónica. Úsala en Ableton Places para ver loops al instante."
             onPick={() => props.onPickStorage("LOCAL", "Biblioteca local")}
             onClear={props.onClearStorage}
           />
           <StorageRow
             kind="GOOGLE_DRIVE_FOLDER"
             location={drive}
+            hint="Espejo de respaldo. Drive no refresca Ableton solo; marca Disponible sin conexión."
             onPick={() => props.onPickStorage("GOOGLE_DRIVE_FOLDER", "Carpeta Google Drive")}
             onClear={props.onClearStorage}
           />
           <StorageRow
             kind="DROPBOX_FOLDER"
             location={dropbox}
+            hint="Espejo opcional. Misma lógica que Drive para Ableton."
             onPick={() => props.onPickStorage("DROPBOX_FOLDER", "Carpeta Dropbox")}
             onClear={props.onClearStorage}
           />
+          {local && (drive || dropbox) ? (
+            <div className="mirror-sync-block">
+              <p className="muted">
+                Al abrir la app se revisa Drive/Dropbox y solo se copian loops que falten en tu
+                biblioteca local. También puedes forzar una revisión manual aquí.
+              </p>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={props.busy}
+                onClick={props.onSyncMirrors}
+              >
+                Importar ahora desde Drive/Dropbox
+              </button>
+              {props.mirrorImportReport ? (
+                <p className="mirror-sync-result">
+                  Importados: {props.mirrorImportReport.imported} · Restaurados en local:{" "}
+                  {props.mirrorImportReport.local_restored} · Ya estaban:{" "}
+                  {props.mirrorImportReport.already_present}
+                  {props.mirrorImportReport.errors.length > 0
+                    ? ` · Errores: ${props.mirrorImportReport.errors.length}`
+                    : ""}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
+        {local ? (
+          <AbletonPlacesCard
+            localRoot={local.root_path}
+            driveRoot={drive?.root_path}
+            onOpenLocalLoops={() => props.onOpenLocalLoops()}
+            onOpenDriveLoops={props.onOpenDriveLoops}
+          />
+        ) : null}
         </div>
       </div>
     </section>
@@ -661,23 +764,66 @@ function Home(props: {
 function StorageRow(props: {
   kind: StorageKind;
   location?: { id: string; root_path: string; enabled: boolean };
+  hint?: string;
   onPick: () => void;
   onClear: (id: string) => void;
 }) {
   const ok = Boolean(props.location?.enabled);
   return (
-    <div className="row" style={{ marginBottom: 8 }}>
-      <span style={{ width: 180 }} className={ok ? "ok" : "muted"}>
-        {ok ? "✓" : "○"} {storageKindLabel(props.kind)}
-      </span>
-      <span className="grow path">{props.location?.root_path ?? "—"}</span>
-      <button className="btn" onClick={props.onPick}>
-        Elegir carpeta
-      </button>
-      {props.location ? (
-        <button className="btn" onClick={() => props.onClear(props.location!.id)}>
-          Quitar
+    <div className="storage-row" style={{ marginBottom: 8 }}>
+      <div className="row">
+        <span style={{ width: 180 }} className={ok ? "ok" : "muted"}>
+          {ok ? "✓" : "○"} {storageKindLabel(props.kind)}
+        </span>
+        <span className="grow path">{props.location?.root_path ?? "—"}</span>
+        <button type="button" className="btn" onClick={props.onPick}>
+          Elegir carpeta
         </button>
+        {props.location ? (
+          <button type="button" className="btn" onClick={() => props.onClear(props.location!.id)}>
+            Quitar
+          </button>
+        ) : null}
+      </div>
+      {props.hint ? <p className="muted storage-hint">{props.hint}</p> : null}
+    </div>
+  );
+}
+
+function AbletonPlacesCard(props: {
+  localRoot: string;
+  driveRoot?: string;
+  onOpenLocalLoops: () => void;
+  onOpenDriveLoops?: () => void;
+}) {
+  const localLoops = loopsFolderPath(props.localRoot);
+  return (
+    <div className="card ableton-places-card">
+      <h2>Ableton Places</h2>
+      <p>
+        Agrega la carpeta <b>Loops local</b> en Places de Live. Ahí los loops farmeados aparecen al instante, sin
+        quitar y volver a agregar la carpeta.
+      </p>
+      <p className="path ableton-places-path">{localLoops}</p>
+      <div className="row ableton-places-actions">
+        <button type="button" className="btn primary" onClick={props.onOpenLocalLoops}>
+          Abrir Loops local
+        </button>
+      </div>
+      <ul className="ableton-places-tips muted">
+        <li>
+          <b>No uses Drive en Ableton</b> si puedes evitarlo: Live no refresca bien carpetas en la nube.
+        </li>
+        <li>
+          Si compartes biblioteca por Drive y no ves loops de otra persona: en Google Drive marca la carpeta{" "}
+          <b>Disponible sin conexión</b>, espera la descarga, y en Live colapsa/expande Places (limitación de
+          Ableton, no de Audionautica).
+        </li>
+      </ul>
+      {props.driveRoot && props.onOpenDriveLoops ? (
+        <p className="muted ableton-drive-note">
+          Espejo Drive: <span className="path">{loopsFolderPath(props.driveRoot)}</span>
+        </p>
       ) : null}
     </div>
   );
@@ -775,6 +921,10 @@ function ResultView(props: {
           ))}
         </ul>
         <p className="muted">Esto confirma copia a carpeta, no subida a la nube.</p>
+        <p className="muted ableton-post-harvest-tip">
+          En Ableton, usa la carpeta <b>Loops</b> de tu biblioteca <b>local</b> en Places para ver estos archivos al
+          instante. Drive es respaldo; Live no actualiza Places solo en carpetas de nube.
+        </p>
       </div>
       {props.report.errors.length ? (
         <div className="card">
