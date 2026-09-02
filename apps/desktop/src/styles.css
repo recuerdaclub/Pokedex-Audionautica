@@ -371,6 +371,182 @@ select {
   padding: 10px 20px 14px;
 }
 
+.pokedex-deck-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.app-version {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.update-check-btn {
+  border: 1px solid color-mix(in srgb, var(--text) 24%, transparent);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.update-check-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.update-check-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.update-check-btn.has-update {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.update-inline-error {
+  font-size: 9px;
+  color: #ff8f8f;
+  text-align: center;
+  max-width: 220px;
+}
+
+.update-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.update-dialog {
+  width: min(560px, 100%);
+  max-height: min(80vh, 720px);
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.update-dialog-header {
+  padding: 18px 20px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.update-dialog-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.update-dialog-subtitle {
+  margin: 6px 0 0;
+  opacity: 0.75;
+  font-size: 13px;
+}
+
+.update-dialog-body {
+  padding: 14px 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.update-version-line {
+  margin: 0;
+}
+
+.update-notes h3,
+.update-instructions h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.update-notes pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  border: 1px solid var(--line);
+}
+
+.update-instructions ol {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.update-asset-line {
+  margin: 0;
+  font-size: 12px;
+}
+
+.update-asset-line code {
+  font-size: 11px;
+}
+
+.update-asset-line.warn {
+  color: #ffb347;
+}
+
+.update-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.update-dialog-actions .primary,
+.update-dialog-actions .secondary {
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.update-dialog-actions .secondary {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+}
+
+.update-dialog-actions .primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #111;
+  font-weight: 600;
+}
+
+.update-dialog-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .pokedex-deck-left {
   display: flex;
   align-items: center;
@@ -1258,6 +1434,14 @@ audio {
 
   .pokedex-deck {
     padding: 8px 12px 12px;
+  }
+
+  .pokedex-deck-center {
+    order: 2;
+  }
+
+  .theme-dots {
+    order: 3;
   }
 
   .pokedex-deck-left {

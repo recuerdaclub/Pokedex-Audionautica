@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredTheme, THEME_STORAGE_KEY, THEMES, type ThemeId } from "./theme";
+import { UpdateDialog } from "./UpdateDialog";
+import {
+  checkForUpdates,
+  getInstalledVersion,
+  openExternalUrl,
+  type UpdateCheckStatus,
+  type UpdateInfo,
+} from "./updates";
 import {
   archiveSession,
   abandonSession,
@@ -72,11 +80,72 @@ export default function App() {
   const [filterCategory, setFilterCategory] = useState<Category | "">("");
   const [filterProject, setFilterProject] = useState("");
   const [theme, setTheme] = useState<ThemeId>(() => readStoredTheme());
+  const [installedVersion, setInstalledVersion] = useState(__APP_VERSION__);
+  const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus>("idle");
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+
+  const runUpdateCheck = useCallback(async (options?: { showDialogOnAvailable?: boolean }) => {
+    setUpdateStatus("checking");
+    setUpdateMessage(null);
+    try {
+      const version = await getInstalledVersion();
+      setInstalledVersion(version);
+      const result = await checkForUpdates(version);
+      setUpdateInfo(result.info);
+      if (result.status === "available") {
+        setUpdateStatus("available");
+        if (options?.showDialogOnAvailable) {
+          setShowUpdateDialog(true);
+        }
+      } else {
+        setUpdateStatus("up-to-date");
+      }
+    } catch (e) {
+      setUpdateStatus("error");
+      setUpdateMessage(String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    void runUpdateCheck({ showDialogOnAvailable: true });
+  }, [runUpdateCheck]);
 
   useEffect(() => {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const updateButtonLabel = useMemo(() => {
+    if (updateStatus === "checking") return "Buscando…";
+    if (updateStatus === "available") return "Actualizar";
+    if (updateStatus === "up-to-date") return "Al día";
+    if (updateStatus === "error") return "Reintentar";
+    return "Buscar actualizaciones";
+  }, [updateStatus]);
+
+  async function handleInstallUpdate() {
+    if (!updateInfo?.asset) return;
+    setUpdateBusy(true);
+    try {
+      await openExternalUrl(updateInfo.asset.downloadUrl);
+    } catch (e) {
+      setUpdateMessage(String(e));
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
+
+  async function handleOpenReleaseOnGitHub() {
+    if (!updateInfo) return;
+    try {
+      await openExternalUrl(updateInfo.releaseUrl);
+    } catch (e) {
+      setUpdateMessage(String(e));
+    }
+  }
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -574,6 +643,30 @@ export default function App() {
             </span>
             <span className="pokedex-dpad" />
           </div>
+          <div className="pokedex-deck-center">
+            <span className="app-version">v{installedVersion}</span>
+            <button
+              type="button"
+              className={`update-check-btn${updateStatus === "available" ? " has-update" : ""}`}
+              onClick={() => {
+                if (updateStatus === "available" && updateInfo) {
+                  setShowUpdateDialog(true);
+                  return;
+                }
+                void runUpdateCheck({ showDialogOnAvailable: true });
+              }}
+              disabled={updateStatus === "checking"}
+              title={
+                updateMessage ??
+                (updateStatus === "up-to-date"
+                  ? "Estás en la última versión publicada en GitHub."
+                  : "Buscar actualizaciones en GitHub")
+              }
+            >
+              {updateButtonLabel}
+            </button>
+            {updateMessage ? <span className="update-inline-error">{updateMessage}</span> : null}
+          </div>
           <div className="theme-dots" role="radiogroup" aria-label="Paleta de color">
             {THEMES.map((item) => (
               <button
@@ -590,6 +683,15 @@ export default function App() {
             ))}
           </div>
         </footer>
+        {showUpdateDialog && updateInfo ? (
+          <UpdateDialog
+            info={updateInfo}
+            busy={updateBusy}
+            onInstall={() => void handleInstallUpdate()}
+            onOpenGitHub={() => void handleOpenReleaseOnGitHub()}
+            onDismiss={() => setShowUpdateDialog(false)}
+          />
+        ) : null}
       </div>
     </div>
   );
