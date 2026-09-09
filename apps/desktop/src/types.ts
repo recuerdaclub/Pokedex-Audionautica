@@ -216,6 +216,11 @@ export interface Project {
   project_root: string;
 }
 
+export interface RecentAbletonSet {
+  path: string;
+  name: string;
+}
+
 export interface AppState {
   data_dir: string;
   db_path: string;

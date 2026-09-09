@@ -3,6 +3,7 @@
 //! This crate has **no** dependency on Tauri, React, Dropbox APIs or Google Drive APIs.
 
 pub mod ableton;
+pub mod recent_ableton;
 pub mod audio;
 pub mod db;
 pub mod domain;

@@ -12,6 +12,7 @@ use audionautica_core::harvest::{
 };
 use audionautica_core::domain::IgnoredConsolidateInput;
 use audionautica_core::logging;
+use audionautica_core::recent_ableton::{self, RecentAbletonSet};
 use rusqlite::Connection;
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -56,6 +57,18 @@ fn get_app_state(state: State<AppState>) -> Result<UiAppState, String> {
 }
 
 #[tauri::command]
+fn list_recent_ableton_sets(state: State<AppState>) -> Result<Vec<RecentAbletonSet>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    recent_ableton::list_recent_ableton_sets(&conn, 11).map_err(map_err)
+}
+
+#[tauri::command]
+fn record_ableton_set_opened(state: State<AppState>, path: String) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    recent_ableton::record_ableton_set_opened(&conn, &path).map_err(map_err)
+}
+
+#[tauri::command]
 fn inspect_ableton_set(path: String) -> Result<audionautica_core::ableton::AbletonSetInfo, String> {
     AbletonProjectReader::inspect(std::path::Path::new(&path)).map_err(map_err)
 }
@@ -96,7 +109,7 @@ fn start_session(
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let session = harvest::start_session(&conn, std::path::Path::new(&als_path), bpm_override)
         .map_err(map_err)?;
-    db::set_setting(&conn, "last_als_path", &als_path).map_err(map_err)?;
+    recent_ableton::record_ableton_set_opened(&conn, &als_path).map_err(map_err)?;
     Ok(session)
 }
 
@@ -292,6 +305,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_state,
             inspect_ableton_set,
+            list_recent_ableton_sets,
+            record_ableton_set_opened,
             scan_historical_consolidates,
             import_historical,
             ignore_consolidates,

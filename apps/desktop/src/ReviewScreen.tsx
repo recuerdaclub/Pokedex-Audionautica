@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { LoadingBar } from "./LoadingBar";
 import type { CandidateSelection, Category } from "./types";
 import { CATEGORIES } from "./types";
 import { HiddenReviewAudio, InlineReviewTrack } from "./ReviewPlayer";
@@ -165,6 +166,11 @@ export function ReviewScreen(props: {
 
   return (
     <section className="review-screen">
+      {props.busy ? (
+        <div className="loading-overlay-inline">
+          <LoadingBar label="Farmeando loops…" />
+        </div>
+      ) : null}
       <HiddenReviewAudio audioRef={audioRef} />
       <h1>{props.title}</h1>
       <p className="lede">{props.lede}</p>

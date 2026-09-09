@@ -23,8 +23,10 @@ import {
   inspectAbletonSet,
   listLibrary,
   listProjects,
+  listRecentAbletonSets,
   pickAbletonSet,
   pickFolder,
+  recordAbletonSetOpened,
   revealPath,
   saveStorageLocation,
   scanHistoricalConsolidates,
@@ -33,6 +35,8 @@ import {
 } from "./api";
 import { ReviewScreen } from "./ReviewScreen";
 import { LibraryAudioPlayer } from "./LibraryAudioPlayer";
+import { LoadingBar } from "./LoadingBar";
+import { LoadingSpinner } from "./LoadingSpinner";
 import {
   CATEGORIES,
   storageKindLabel,
@@ -47,6 +51,7 @@ import {
   type MirrorImportReport,
   type Project,
   type ProjectLibraryStatus,
+  type RecentAbletonSet,
   type StorageKind,
 } from "./types";
 
@@ -57,6 +62,9 @@ export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mirrorSyncing, setMirrorSyncing] = useState(false);
+  const [scanningLibrary, setScanningLibrary] = useState(false);
+  const [recentAbletonSets, setRecentAbletonSets] = useState<RecentAbletonSet[]>([]);
   const [mirrorImportReport, setMirrorImportReport] = useState<MirrorImportReport | null>(null);
 
   const [alsPath, setAlsPath] = useState("");
@@ -115,8 +123,17 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
+    void refreshRecentAbletonSets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (screen === "home") {
+      void refreshRecentAbletonSets();
+    }
+  }, [screen]);
+
+  const activityBusy = busy || mirrorSyncing || scanningLibrary;
 
   const updateButtonLabel = useMemo(() => {
     if (updateStatus === "checking") return "Buscando…";
@@ -156,7 +173,16 @@ export default function App() {
     }
   }, [theme]);
 
+  async function refreshRecentAbletonSets() {
+    try {
+      setRecentAbletonSets(await listRecentAbletonSets());
+    } catch {
+      setRecentAbletonSets([]);
+    }
+  }
+
   async function scanLibrary(path: string) {
+    setScanningLibrary(true);
     try {
       const status = await scanHistoricalConsolidates(path);
       setLibraryStatus(status);
@@ -164,6 +190,8 @@ export default function App() {
     } catch {
       setLibraryStatus(null);
       return null;
+    } finally {
+      setScanningLibrary(false);
     }
   }
 
@@ -178,6 +206,7 @@ export default function App() {
       }
       return null;
     }
+    setMirrorSyncing(true);
     try {
       const report = await syncMirrorsToLocal();
       if (
@@ -191,6 +220,8 @@ export default function App() {
     } catch (e) {
       if (!opts?.silent) setError(String(e));
       return null;
+    } finally {
+      setMirrorSyncing(false);
     }
   }
 
@@ -247,12 +278,12 @@ export default function App() {
     setBusy(false);
   }
 
-  async function chooseAls() {
+  async function selectAlsPath(path: string) {
     setError(null);
-    const path = await pickAbletonSet();
-    if (!path) return;
     setAlsPath(path);
     try {
+      await recordAbletonSetOpened(path);
+      void refreshRecentAbletonSets();
       const inspected = await inspectAbletonSet(path);
       setInfo(inspected);
       setBpm(inspected.tempo != null ? String(inspected.tempo) : "");
@@ -260,6 +291,12 @@ export default function App() {
     } catch (e) {
       setError(String(e));
     }
+  }
+
+  async function chooseAls() {
+    const path = await pickAbletonSet();
+    if (!path) return;
+    await selectAlsPath(path);
   }
 
   function openHistoricalReview(status: ProjectLibraryStatus) {
@@ -407,8 +444,8 @@ export default function App() {
               <div className="brand">Pokedex Audionautica</div>
               <div className="pokedex-lights" aria-hidden="true">
                 <span className={`pokedex-light red${error ? " on" : ""}`} />
-                <span className={`pokedex-light yellow${busy ? " on" : ""}`} />
-                <span className={`pokedex-light green${!error && !busy ? " on" : ""}`} />
+                <span className={`pokedex-light yellow${activityBusy ? " on" : ""}`} />
+                <span className={`pokedex-light green${!error && !activityBusy ? " on" : ""}`} />
               </div>
             </div>
             <nav className="nav">
@@ -442,8 +479,12 @@ export default function App() {
             alsPath={alsPath}
             state={state}
             libraryStatus={libraryStatus}
-            busy={busy}
+            busy={activityBusy}
+            scanningLibrary={scanningLibrary}
+            mirrorSyncing={mirrorSyncing}
+            recentAbletonSets={recentAbletonSets}
             onChooseAls={() => void chooseAls()}
+            onSelectRecent={(path) => void selectAlsPath(path)}
             onReviewHistorical={() => {
               if (libraryStatus) openHistoricalReview(libraryStatus);
             }}
@@ -663,7 +704,14 @@ export default function App() {
                   : "Buscar actualizaciones en GitHub")
               }
             >
-              {updateButtonLabel}
+              {updateStatus === "checking" ? (
+                <span className="update-check-btn-inner">
+                  <LoadingSpinner size="sm" />
+                  Buscando…
+                </span>
+              ) : (
+                updateButtonLabel
+              )}
             </button>
             {updateMessage ? <span className="update-inline-error">{updateMessage}</span> : null}
           </div>
@@ -692,6 +740,11 @@ export default function App() {
             onDismiss={() => setShowUpdateDialog(false)}
           />
         ) : null}
+        {updateStatus === "checking" ? (
+          <div className="update-check-overlay" aria-hidden="true">
+            <LoadingSpinner label="Buscando actualizaciones…" />
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -702,8 +755,12 @@ function Home(props: {
   state: AppState | null;
   libraryStatus: ProjectLibraryStatus | null;
   busy: boolean;
+  scanningLibrary: boolean;
+  mirrorSyncing: boolean;
+  recentAbletonSets: RecentAbletonSet[];
   mirrorImportReport: MirrorImportReport | null;
   onChooseAls: () => void;
+  onSelectRecent: (path: string) => void;
   onReviewHistorical: () => void;
   onPickStorage: (kind: StorageKind, label: string) => void;
   onClearStorage: (id: string) => void;
@@ -732,10 +789,29 @@ function Home(props: {
           <h2>analiza el live set</h2>
           <div className="row">
             <div className="grow path">{props.alsPath || "Ningún .als seleccionado"}</div>
-            <button className="btn primary" onClick={props.onChooseAls}>
+            <button className="btn primary" disabled={props.busy} onClick={props.onChooseAls}>
               Elegir .als
             </button>
           </div>
+          {props.recentAbletonSets.length > 0 ? (
+            <div className="recent-als-block">
+              <p className="recent-als-title">Proyectos recientes de Ableton</p>
+              <div className="recent-als-list">
+                {props.recentAbletonSets.map((item) => (
+                  <button
+                    key={item.path}
+                    type="button"
+                    className={`btn recent-als-btn${props.alsPath === item.path ? " selected" : ""}`}
+                    disabled={props.busy}
+                    title={item.path}
+                    onClick={() => props.onSelectRecent(item.path)}
+                  >
+                    <span className="recent-als-btn-label">{item.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
         <div className="card library-status-card">
           <h2>Library status</h2>
@@ -748,6 +824,8 @@ function Home(props: {
                   Para farmear necesitas carpeta local y Google Drive. Dropbox se puede agregar después y se
                   sincroniza solo.
                 </p>
+              ) : props.scanningLibrary ? (
+                <LoadingBar label="Escaneando biblioteca…" compact />
               ) : props.libraryStatus ? (
                 <p>
                   <b>{loopsLabel}</b>
@@ -770,29 +848,8 @@ function Home(props: {
         </div>
         <div className="card">
           <h2>registros audionauticos</h2>
-          <StorageRow
-            kind="LOCAL"
-            location={local}
-            hint="Copia canónica. Úsala en Ableton Places para ver loops al instante."
-            onPick={() => props.onPickStorage("LOCAL", "Biblioteca local")}
-            onClear={props.onClearStorage}
-          />
-          <StorageRow
-            kind="GOOGLE_DRIVE_FOLDER"
-            location={drive}
-            hint="Espejo de respaldo. Drive no refresca Ableton solo; marca Disponible sin conexión."
-            onPick={() => props.onPickStorage("GOOGLE_DRIVE_FOLDER", "Carpeta Google Drive")}
-            onClear={props.onClearStorage}
-          />
-          <StorageRow
-            kind="DROPBOX_FOLDER"
-            location={dropbox}
-            hint="Espejo opcional. Misma lógica que Drive para Ableton."
-            onPick={() => props.onPickStorage("DROPBOX_FOLDER", "Carpeta Dropbox")}
-            onClear={props.onClearStorage}
-          />
           {local && (drive || dropbox) ? (
-            <div className="mirror-sync-block">
+            <div className="mirror-sync-block mirror-sync-block-top">
               <div className="mirror-sync-row">
                 <p className="muted mirror-sync-copy">
                   Al abrir la app se revisa Drive/Dropbox y solo se copian loops que falten en tu
@@ -804,9 +861,14 @@ function Home(props: {
                   disabled={props.busy}
                   onClick={props.onSyncMirrors}
                 >
-                  Sincronizar Pokedex
+                  {props.mirrorSyncing ? "Sincronizando…" : "Sincronizar Pokedex"}
                 </button>
               </div>
+              {props.mirrorSyncing ? (
+                <div className="mirror-sync-loading">
+                  <LoadingBar label="Sincronizando Pokedex…" compact />
+                </div>
+              ) : null}
               {props.mirrorImportReport ? (
                 <p className="mirror-sync-result">
                   Importados: {props.mirrorImportReport.imported} · Restaurados en local:{" "}
@@ -819,6 +881,29 @@ function Home(props: {
               ) : null}
             </div>
           ) : null}
+          <StorageRow
+            kind="LOCAL"
+            location={local}
+            hint="Copia canónica. Úsala en Ableton Places para ver loops al instante."
+            onPick={() => props.onPickStorage("LOCAL", "Biblioteca local")}
+            onClear={props.onClearStorage}
+          />
+          <div className="storage-mirror-config">
+            <StorageRow
+              kind="GOOGLE_DRIVE_FOLDER"
+              location={drive}
+              hint="Espejo de respaldo. Drive no refresca Ableton solo; marca Disponible sin conexión."
+              onPick={() => props.onPickStorage("GOOGLE_DRIVE_FOLDER", "Carpeta Google Drive")}
+              onClear={props.onClearStorage}
+            />
+            <StorageRow
+              kind="DROPBOX_FOLDER"
+              location={dropbox}
+              hint="Espejo opcional. Misma lógica que Drive para Ableton."
+              onPick={() => props.onPickStorage("DROPBOX_FOLDER", "Carpeta Dropbox")}
+              onClear={props.onClearStorage}
+            />
+          </div>
         </div>
         </div>
       </div>

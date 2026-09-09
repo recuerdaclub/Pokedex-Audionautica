@@ -408,6 +408,23 @@ select {
   cursor: wait;
 }
 
+.update-check-btn-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-check-btn-inner .loading-spinner-block {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+}
+
+.update-check-btn-inner .loading-spinner-label {
+  display: none;
+}
+
 .update-check-btn.has-update {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
@@ -1286,7 +1303,22 @@ audio {
 .mirror-sync-block {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
+}
+
+.mirror-sync-block-top {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.storage-mirror-config {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 
 .mirror-sync-row {
@@ -1527,4 +1559,176 @@ audio {
     border-width: 0;
     box-shadow: none;
   }
+}
+
+/* Loading indicators */
+.loading-bar-block {
+  display: grid;
+  gap: 8px;
+}
+
+.loading-bar-block.compact {
+  gap: 6px;
+}
+
+.loading-bar-label,
+.loading-spinner-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.loading-bar-track {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+  overflow: hidden;
+  position: relative;
+}
+
+.loading-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  animation: loading-bar-slide 1.15s ease-in-out infinite;
+}
+
+@keyframes loading-bar-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
+.loading-spinner-block {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.loading-spinner-block.size-sm .loading-spinner {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+
+.loading-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-top-color: var(--accent);
+  animation: loading-spin 0.75s linear infinite;
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-overlay-inline {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 20px;
+  background: color-mix(in srgb, var(--screen) 82%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.review-screen {
+  position: relative;
+}
+
+.update-check-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.recent-als-block {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.recent-als-title {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.recent-als-list {
+  --recent-row-h: 38px;
+  --recent-gap: 6px;
+  --recent-visible: 3;
+  display: flex;
+  flex-direction: column;
+  gap: var(--recent-gap);
+  max-height: calc(
+    var(--recent-visible) * var(--recent-row-h) + (var(--recent-visible) - 1) * var(--recent-gap) + 16px
+  );
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel-2) 65%, transparent);
+  scroll-padding-block: 6px;
+}
+
+.recent-als-list .recent-als-btn.btn {
+  flex: 0 0 var(--recent-row-h);
+  box-sizing: border-box;
+  height: var(--recent-row-h);
+  min-height: var(--recent-row-h);
+  max-height: var(--recent-row-h);
+  padding: 0 10px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 7px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow: visible;
+}
+
+.recent-als-btn-label {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  font-family: inherit;
+  font-size: 7px;
+  line-height: 1.65;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-als-btn.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.mirror-sync-loading {
+  margin-top: 10px;
 }

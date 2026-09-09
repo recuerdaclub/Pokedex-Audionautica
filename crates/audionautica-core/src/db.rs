@@ -667,6 +667,19 @@ pub fn list_projects(conn: &Connection) -> AppResult<Vec<Project>> {
     Ok(out)
 }
 
+pub fn list_projects_by_recent(conn: &Connection, limit: usize) -> AppResult<Vec<Project>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, ableton_set_path, project_root, created_at, updated_at
+         FROM projects ORDER BY updated_at DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map([limit as i64], row_project)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
 pub fn list_storage_locations(conn: &Connection) -> AppResult<Vec<StorageLocation>> {
     let mut stmt = conn.prepare(
         "SELECT id, kind, label, root_path, enabled, created_at FROM storage_locations ORDER BY created_at",

@@ -16,6 +16,7 @@ import type {
   StorageKind,
   UpdateLibraryAssetReport,
   MirrorImportReport,
+  RecentAbletonSet,
 } from "./types";
 
 export async function getAppState(): Promise<AppState> {
@@ -123,6 +124,14 @@ export async function listLibrary(filter: {
 
 export async function listProjects(): Promise<Project[]> {
   return invoke("list_projects");
+}
+
+export async function listRecentAbletonSets(): Promise<RecentAbletonSet[]> {
+  return invoke("list_recent_ableton_sets");
+}
+
+export async function recordAbletonSetOpened(path: string): Promise<void> {
+  await invoke("record_ableton_set_opened", { path });
 }
 
 export async function pickAbletonSet(): Promise<string | null> {
