@@ -18,7 +18,7 @@ pub struct RecentAbletonSet {
 }
 
 pub fn list_recent_ableton_sets(conn: &Connection, limit: usize) -> AppResult<Vec<RecentAbletonSet>> {
-    let limit = limit.max(1).min(20);
+    let limit = limit.clamp(1, 20);
     let mut seen = HashSet::new();
     let mut out = Vec::new();
 
@@ -216,7 +216,7 @@ fn extract_utf16le_als_paths(data: &[u8]) -> Vec<PathBuf> {
 }
 
 fn utf16_path_ending_at(data: &[u8], end: usize) -> Option<PathBuf> {
-    if end % 2 != 0 || end < 4 {
+    if !end.is_multiple_of(2) || end < 4 {
         return None;
     }
     let mut units = Vec::new();
